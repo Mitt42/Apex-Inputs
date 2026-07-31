@@ -1,0 +1,120 @@
+<!doctype html>
+<!-- Defines the control component of Apex Inputs. -->
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Apex Inputs</title>
+<link rel="stylesheet" href="control.css">
+</head>
+<body>
+<header class="titlebar"><div class="brand">
+<span class="brandmark">A</span><strong>APEX <i>INPUTS</i></strong><span class="version">BETA 0.2</span>
+</div>
+<div class="window-actions">
+<button id="minimize">—</button><button id="close">×</button>
+</div></header>
+<div class="layout">
+<aside><nav><button id="overlaysNav" class="active"><span>◈</span> Overlays</button><button disabled><span>⌁</span> Profiles <small>COMING SOON</small></button><button id="settingsNav"><span>⚙</span> App Settings</button></nav><div class="sim-card">
+<span id="statusDot"></span><div>
+<small>DATA SOURCE</small><strong id="source">Demo mode</strong>
+</div>
+</div></aside>
+<main><div id="overlayPage">
+<section class="hero hero-simple"><div>
+<p class="eyebrow">CONTROL CENTER</p>
+<h1>Your car.<br><em>Your data.</em>
+</h1>
+<p>See every input and every rival, directly on top of iRacing.</p>
+</div></section>
+<section class="toolbar"><div>
+<h2>Overlays</h2>
+<p>Visible while driving</p>
+</div>
+<label class="all-overlays"><span>Enable all</span><input id="allOverlaysEnabled" type="checkbox"></label><input id="overlayEnabled" class="is-hidden" type="checkbox"></section>
+<section class="grid overlay-grid"><article class="panel wide overlays-panel"><div class="panel-title">
+<div>
+<p class="eyebrow">OVERLAYS</p>
+<h3>Choose an overlay to configure</h3>
+</div>
+<span>2 AVAILABLE</span>
+</div>
+<div id="inputsDropdown" class="overlay-dropdown" aria-expanded="false">
+<span class="dropdown-icon">⌁</span><span><strong>Inputs</strong><small>Pedals, gear and steering</small></span><input id="inputsEnabled" type="checkbox"><i>⌄</i>
+</div>
+<div id="inputsContent" class="overlay-dropdown-content is-hidden">
+<label class="row graph-row"><div>
+<strong>Input graph</strong><small>Show pedal input history</small>
+</div>
+<input id="graphEnabled" type="checkbox"></label><label class="select-row graph-height"><span>Graph height</span><input id="graphHeight" type="range" min="55" max="150"><output id="graphHeightOut">82 px</output></label><div class="content-heading">
+<span>VISIBLE ELEMENTS</span><small>5 COMPONENTS</small>
+</div>
+<div id="modules" class="module-list"></div>
+</div>
+<label id="relativeSelect" class="relative-select"><span class="dropdown-icon">≋</span><span><strong>Relative</strong><small>Nearby drivers and gaps</small></span><input id="relativeEnabled" type="checkbox"></label></article>
+<article class="panel"><p class="eyebrow">BEHAVIOR</p>
+<h3>While driving</h3>
+<label class="row"><div>
+<strong>Click-through</strong><small>Mouse clicks pass to iRacing</small>
+</div>
+<input id="clickThrough" type="checkbox"></label><label class="row"><div>
+<strong>Demo mode</strong><small>Test without the simulator</small>
+</div>
+<input id="demoMode" type="checkbox"></label><button id="editMode" class="outline">Move and resize overlay</button><p class="edit-help">In edit mode, drag the selected overlay and resize it from the window edges.</p></article>
+<article id="inputsAppearance" class="panel appearance is-hidden"><p class="eyebrow">APPEARANCE · INPUTS</p>
+<h3>Input overlay style</h3>
+<label>Scale <output id="scaleOut">100%</output><input id="scale" type="range" min="70" max="140"></label><label>Text size <output id="inputsFontSizeOut">100%</output><input id="inputsFontSize" type="range" min="70" max="160"></label><label>Opacity <output id="opacityOut">92%</output><input id="opacity" type="range" min="35" max="100"></label><label>Pedal width <output id="pedalWidthOut">61 px</output><input id="pedalWidth" type="range" min="42" max="110"></label><label>Pedal height <output id="pedalHeightOut">155 px</output><input id="pedalHeight" type="range" min="110" max="260"></label><div class="value-options">
+<label class="row compact"><div>
+<strong>Show values</strong><small>Numeric pedal percentages</small>
+</div>
+<input id="showPedalValues" type="checkbox"></label><label class="select-row"><span>Value position</span><select id="pedalValuePosition"><option value="top">Top</option>
+<option value="bottom">Bottom</option></select></label><div class="individual-values">
+<small>INDIVIDUAL VALUES</small><label><input id="clutchValueVisible" type="checkbox"> Clutch</label><label><input id="brakeValueVisible" type="checkbox"> Brake</label><label><input id="throttleValueVisible" type="checkbox"> Throttle</label>
+</div>
+</div>
+<div class="colors">
+<label>Accent<input id="accent" type="color"></label><label>Background<input id="panel" type="color"></label><label>Clutch<input id="clutchColor" type="color"></label><label>Brake<input id="brakeColor" type="color"></label><label>Throttle<input id="throttleColor" type="color"></label>
+</div></article>
+<article id="relativeAppearance" class="panel appearance relative-options is-hidden"><p class="eyebrow">APPEARANCE · RELATIVE</p>
+<h3>Relative overlay</h3>
+<div class="option-grid">
+<label>Rows<input data-relative="rows" type="number" min="3" max="21"></label><label>Row style<select data-relative="rowStyle"><option value="solid">Solid</option>
+<option value="stripes">Stripes</option>
+<option value="stripes-reversed">Stripes reversed</option>
+<option value="stripe-player">Stripe only player</option></select></label><label>Multiclass color<select data-relative="multiclassColor"><option value="car-number">Car number</option>
+<option value="car-number-bg">Car number background</option>
+<option value="row-bg">Row background</option></select></label><label>Name format<select data-relative="driverNameStyle"><option value="full">Joshua K Rogers</option>
+<option value="initial-last">J. Rogers</option>
+<option value="last-first">Rogers J.</option>
+<option value="last">Rogers</option>
+<option value="initials">J. R.</option></select></label><label>Name case<select data-relative="nameCase"><option value="normal">Normal</option>
+<option value="small-caps">Small caps</option>
+<option value="uppercase">UPPERCASE</option></select></label><label>Temperature units<select data-relative="tempUnits"><option value="default">Default</option>
+<option value="c">°C</option>
+<option value="f">°F</option>
+<option value="both">Both</option></select></label><label>Manufacturer logo<select data-relative="manufacturerLogo"><option value="off">Off</option>
+<option value="multiclass">Multiple car session</option>
+<option value="always">Always</option></select></label>
+</div>
+<div class="check-options">
+<label><input data-relative="showInfoTop" type="checkbox"> Show info at top</label><label><input data-relative="oilTemp" type="checkbox"> Oil temp</label><label><input data-relative="waterTemp" type="checkbox"> Water temp</label><label><input data-relative="brakeBias" type="checkbox"> Brake bias</label><label><input data-relative="airTemp" type="checkbox"> Air temp</label><label><input data-relative="trackTemp" type="checkbox"> Track temp</label><label><input data-relative="humidity" type="checkbox"> Relative humidity</label><label><input data-relative="preciseTemps" type="checkbox"> Precise temperatures</label><label><input data-relative="showSof" type="checkbox"> Show SOF</label><label><input data-relative="preciseSof" type="checkbox"> Precise SOF</label><label><input data-relative="incidentsPractice" type="checkbox"> Practice incidents</label><label><input data-relative="incidentsQualifying" type="checkbox"> Qualifying incidents</label><label><input data-relative="incidentsRace" type="checkbox"> Race incidents</label><label><input data-relative="localTime" type="checkbox"> Show local time</label><label><input data-relative="showCarNumbers" type="checkbox"> Show car numbers</label><label><input data-relative="pitBadge" type="checkbox"> Pit / last lap badge</label><label><input data-relative="ratingBadges" type="checkbox"> Safety rating and iRating</label><label><input data-relative="iratingGain" type="checkbox"> iRating gain</label><label><input data-relative="sessionTimeOfDay" type="checkbox"> Session time of day</label>
+</div>
+<label>Scale <output id="relativeScaleOut">100%</output><input data-relative="scale" id="relativeScale" type="range" min="70" max="140"></label><label>Opacity <output id="relativeOpacityOut">94%</output><input data-relative="opacity" id="relativeOpacity" type="range" min="35" max="100"></label><div class="colors">
+<label>Accent<input data-relative="accent" type="color"></label><label>Background<input data-relative="background" type="color"></label>
+</div></article>
+</section>
+</div>
+<section id="settingsPage" class="settings-page is-hidden"><p class="eyebrow">APP SETTINGS</p>
+<h1>Make Apex yours.</h1>
+<p>Customize the control panel itself. Overlay colors remain independent.</p>
+<div class="settings-card">
+<h3>Interface theme</h3>
+<label>Interface size <output id="appFontScaleOut">100%</output><input id="appFontScale" data-theme="fontScale" type="range" min="80" max="125"></label><div class="theme-colors">
+<label>Accent<input data-theme="accent" type="color"></label><label>Background<input data-theme="background" type="color"></label><label>Panels<input data-theme="panel" type="color"></label><label>Text<input data-theme="text" type="color"></label>
+</div>
+<button id="resetTheme" class="outline">Reset default theme</button>
+</div></section></main>
+</div>
+<script src="control.js"></script>
+</body>
+</html>

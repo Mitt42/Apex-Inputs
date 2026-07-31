@@ -1,0 +1,104 @@
+/*
+ * Defines the mgu component of Apex Inputs.
+ */
+
+:root {
+  --battery:#61e77b;
+  --deploy:#ebef59;
+  --charge:#55c8ff;
+  --drain:#ff9f43;
+  --bg:#4b4d50;
+  --scale:1;
+  --font-scale:1;
+  font-family:Consolas,monospace
+}
+* {
+  box-sizing:border-box
+}
+html,body {
+  margin:0;
+  width:100%;
+  height:100%;
+  overflow:hidden;
+  background:transparent
+}
+.mgu {
+  position:absolute;
+  inset:6px;
+  display:flex;
+  gap:7px;
+  transform:scale(var(--scale));
+  transform-origin:top left
+}
+.mgu.editing {
+  -webkit-app-region:drag;
+  cursor:move;
+  outline:1px dashed var(--battery)
+}
+.edit-hint {
+  display:none;
+  position:absolute;
+  top:-14px;
+  color:var(--battery);
+  font-size:7px
+}
+.editing .edit-hint {
+  display:block
+}
+.energy {
+  position:relative;
+  flex:1;
+  height:36px;
+  border:3px solid #f4f5f6;
+  border-radius:6px;
+  background:var(--bg);
+  overflow:hidden;
+  transition:border-color .15s
+}
+.energy.charging {
+  border-color:var(--charge)
+}
+.energy.draining {
+  border-color:var(--drain)
+}
+.fill {
+  position:absolute;
+  inset:0 auto 0 0;
+  width:0;
+  background:var(--battery);
+  transition:width .12s
+}
+.deploy .fill {
+  background:var(--deploy)
+}
+.energy span {
+  position:absolute;
+  left:9px;
+  top:50%;
+  transform:translateY(-50%);
+  z-index:2;
+  color:#080a0b;
+  font-size:calc(22px * var(--font-scale));
+  font-weight:900
+}
+.energy strong {
+  position:absolute;
+  right:7px;
+  top:50%;
+  transform:translateY(-50%);
+  z-index:2;
+  color:#fff;
+  text-shadow:1px 1px 2px #000;
+  font-size:calc(17px * var(--font-scale))
+}
+#resizeHint {
+  display:none;
+  position:fixed;
+  right:1px;
+  bottom:0;
+  color:var(--battery);
+  font-size:18px
+}
+.editing~#resizeHint {
+  display:block
+}

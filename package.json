@@ -1,0 +1,21 @@
+{
+  "name": "apex-inputs-overlay",
+  "version": "0.1.0",
+  "description": "Configurable Electron overlay suite for iRacing telemetry",
+  "license": "MIT",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --dev",
+    "check": "node --check src/main.js && node --check src/preload.js && node --check src/store.js && node --check src/defaults.js && node --check src/telemetry.js && node --check src/telemetry-bridge.js && node --check src/telemetry-worker.js && node --check src/ui/control.js && node --check src/ui/overlay.js && node --check src/ui/relative.js && node --check src/ui/fuel.js && node --check src/ui/pit.js && node --check src/ui/mgu.js && node --check src/ui/radar.js && node --check src/ui/standings.js"
+  },
+  "devDependencies": {
+    "electron": "^43.1.0"
+  },
+  "optionalDependencies": {
+    "irsdk-node": "^4.4.0"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

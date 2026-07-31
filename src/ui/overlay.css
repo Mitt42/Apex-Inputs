@@ -1,0 +1,262 @@
+/*
+ * Defines the overlay component of Apex Inputs.
+ */
+
+.editing {
+  -webkit-app-region:drag;
+  cursor:move;
+  user-select:none
+}
+.pedal {
+  width:var(--pedal-width)!important;
+  height:var(--pedal-height)!important
+}
+.graph {
+  width:220px;
+  height:var(--graph-height);
+  position:relative;
+  background:color-mix(in srgb,var(--panel) 92%,transparent);
+  border:1px solid #ffffff18;
+  border-radius:5px;
+  padding:15px 8px 7px
+}
+.graph canvas {
+  width:100%;
+  height:100%
+}
+.graph small {
+  position:absolute;
+  left:9px;
+  top:6px;
+  font-size:6px;
+  color:#7f8790;
+  letter-spacing:1px
+}
+#resizeHint {
+  display:none;
+  position:fixed;
+  right:2px;
+  bottom:0;
+  color:var(--accent);
+  font-size:20px;
+  pointer-events:none
+}
+.editing~#resizeHint {
+  display:block
+}
+.wheel {
+  position:relative;
+  border-top-color:#343a41!important
+}
+.wheel i {
+  position:absolute;
+  inset:-8px;
+  border:8px solid transparent;
+  border-top-color:#fff;
+  border-radius:50%;
+  transition:transform .04s;
+  pointer-events:none
+}
+.axis {
+  display:none!important
+}
+.pedal.value-top .bar {
+  order:1
+}
+.pedal.value-top strong {
+  order:0;
+  margin-top:0;
+  margin-bottom:7px
+}
+.pedal.value-top span {
+  order:2
+}
+.pedal .value-hidden {
+  visibility:hidden
+}
+.pedal.abs-active .fill {
+  animation:abs-pulse .13s steps(1,end) infinite
+}
+@keyframes abs-pulse {
+  0%,100% {
+    filter:brightness(1);
+    box-shadow:none
+  }
+  50% {
+    filter:brightness(2.7);
+    box-shadow:0 0 13px var(--color);
+    background:#fff
+  }
+}
+.pedal strong {
+  font-size:calc(13px * var(--font-scale,1))
+}
+.pedal small,.pedal span,.gear small,.steering small {
+  font-size:calc(7px * var(--font-scale,1))
+}
+.gear strong {
+  font-size:calc(73px * var(--font-scale,1))
+}
+.steering strong {
+  font-size:calc(28px * var(--font-scale,1))
+}
+.steering>div:last-child {
+  display:none
+}
+.steering {
+  min-width:120px;
+  justify-content:center;
+  padding:16px
+}
+.gear .speed {
+  margin-top:8px;
+  color:#f4f6f7;
+  font-size:calc(10px * var(--font-scale,1));
+  letter-spacing:0;
+  text-transform:none
+}
+:root {
+  --accent:#f3ff4b;
+  --panel:#11151b;
+  --text:#f6f7f8;
+  --scale:1;
+  font-family:Inter,Segoe UI,sans-serif
+}
+* {
+  box-sizing:border-box
+}
+html,body {
+  margin:0;
+  width:100%;
+  height:100%;
+  background:transparent;
+  overflow:hidden
+}
+.overlay {
+  position:absolute;
+  left:10px;
+  bottom:10px;
+  display:flex;
+  gap:10px;
+  align-items:stretch;
+  transform:scale(var(--scale));
+  transform-origin:left bottom;
+  color:var(--text);
+  filter:drop-shadow(0 8px 16px #0008)
+}
+#editHint {
+  display:none;
+  position:absolute;
+  left:0;
+  top:-25px;
+  font-size:8px;
+  letter-spacing:1px;
+  color:var(--accent);
+  white-space:nowrap
+}
+.editing #editHint {
+  display:block
+}
+.editing {
+  outline:1px dashed var(--accent)
+}
+.pedals {
+  display:flex;
+  gap:7px
+}
+.pedal {
+  width:61px;
+  height:155px;
+  background:color-mix(in srgb,var(--panel) 92%,transparent);
+  border:1px solid #ffffff18;
+  border-radius:5px;
+  padding:7px;
+  display:flex;
+  flex-direction:column
+}
+.pedal .bar {
+  position:relative;
+  flex:1;
+  background:#ffffff0b;
+  overflow:hidden
+}
+.pedal .fill {
+  position:absolute;
+  left:0;
+  right:0;
+  bottom:0;
+  height:0;
+  background:var(--color);
+  transition:height .04s
+}
+.pedal strong {
+  font-size:13px;
+  margin-top:7px
+}
+.pedal small,.gear small,.steering small {
+  font-size:7px;
+  color:#959ca4;
+  letter-spacing:1px
+}
+.pedal span {
+  font-size:7px;
+  color:#777f87
+}
+.gear {
+  min-width:110px;
+  background:color-mix(in srgb,var(--panel) 92%,transparent);
+  border:1px solid #ffffff18;
+  border-radius:5px;
+  display:flex;
+  flex-direction:column;
+  justify-content:center;
+  align-items:center
+}
+.gear strong {
+  font-size:73px;
+  line-height:.9;
+  color:var(--accent);
+  font-style:italic
+}
+.steering {
+  min-width:240px;
+  background:color-mix(in srgb,var(--panel) 92%,transparent);
+  border:1px solid #ffffff18;
+  border-radius:5px;
+  display:flex;
+  align-items:center;
+  gap:22px;
+  padding:20px
+}
+.wheel {
+  width:87px;
+  height:87px;
+  border:8px solid #343a41;
+  border-top-color:var(--accent);
+  border-radius:50%;
+  display:grid;
+  place-items:center
+}
+.wheel span {
+  font-size:38px;
+  transition:transform .04s
+}
+.steering strong {
+  display:block;
+  font-size:28px;
+  margin:3px 0
+}
+.axis {
+  width:85px;
+  height:3px;
+  background:#424850;
+  position:relative
+}
+.axis i {
+  position:absolute;
+  width:7px;
+  height:11px;
+  background:var(--accent);
+  top:-4px;
+  left:50%
+}

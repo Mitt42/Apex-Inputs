@@ -1,0 +1,127 @@
+/*
+ * Defines the standings component of Apex Inputs.
+ */
+
+:root {
+  --accent:#f3ff4b;
+  --bg:#1a1b19;
+  --scale:1;
+  --font-scale:1;
+  font-family:Inter,Segoe UI,sans-serif
+}
+* {
+  box-sizing:border-box
+}
+html,body {
+  margin:0;
+  width:100%;
+  height:100%;
+  overflow:hidden;
+  background:transparent
+}
+.standings {
+  position:absolute;
+  inset:7px;
+  color:#f5f5f3;
+  transform:scale(var(--scale));
+  transform-origin:top left;
+  filter:drop-shadow(0 7px 14px #000a)
+}
+.standings.editing {
+  -webkit-app-region:drag;
+  cursor:move;
+  outline:1px dashed var(--accent)
+}
+.edit-hint {
+  display:none;
+  position:absolute;
+  top:-15px;
+  color:var(--accent);
+  font-size:7px
+}
+.editing .edit-hint {
+  display:block
+}
+.class-group {
+  margin-bottom:5px;
+  border-top:2px solid #ffffff29
+}
+.standing-row {
+  display:grid;
+  grid-template-columns:28px 42px 42px minmax(130px,var(--name-width,220px)) 43px 48px 53px 53px 57px 42px minmax(70px,1fr);
+  align-items:center;
+  min-height:31px;
+  padding:0 7px;
+  background:color-mix(in srgb,var(--bg) 94%,transparent);
+  border-bottom:1px solid #ffffff0c;
+  font-size:calc(10px * var(--font-scale));
+  font-weight:700
+}
+.standing-row:nth-child(even) {
+  background:color-mix(in srgb,var(--bg) 88%,#fff)
+}
+.standing-row.player {
+  color:var(--accent)
+}
+.position {
+  font-size:calc(13px * var(--font-scale))
+}
+.change.up {
+  color:#58df80
+}
+.change.down {
+  color:#ff6b5f
+}
+.number {
+  font-weight:900
+}
+.driver {
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis
+}
+.maker {
+  color:#d8d8d8
+}
+.badge {
+  padding:2px 4px;
+  background:#eceff0;
+  color:#202225;
+  border-radius:2px;
+  font-size:calc(7px * var(--font-scale))
+}
+.license {
+  color:#101214
+}
+.gap,.interval,.lap {
+  font-variant-numeric:tabular-nums;
+  text-align:right
+}
+.pit {
+  color:#ffbd42
+}
+.history {
+  display:flex;
+  justify-content:flex-end;
+  gap:5px
+}
+.history i {
+  font-style:normal
+}
+.history .gain {
+  color:#58df80
+}
+.history .loss {
+  color:#ff6b5f
+}
+#resizeHint {
+  display:none;
+  position:fixed;
+  right:1px;
+  bottom:0;
+  color:var(--accent);
+  font-size:18px
+}
+.editing~#resizeHint {
+  display:block
+}

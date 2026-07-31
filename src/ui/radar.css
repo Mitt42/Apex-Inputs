@@ -1,0 +1,85 @@
+/*
+ * Defines the radar component of Apex Inputs.
+ */
+
+:root {
+  --bg:#4b4b4b;
+  --line:#ffad22;
+  --bg-width:20px;
+  --line-width:10px;
+  --line-opacity:1;
+  --scale:1;
+  --transition:.14s;
+  --background-cap:0
+}
+* {
+  box-sizing:border-box
+}
+html,body {
+  margin:0;
+  width:100%;
+  height:100%;
+  overflow:hidden;
+  background:transparent
+}
+.radar {
+  position:absolute;
+  inset:8px;
+  transform:scale(var(--scale));
+  transform-origin:center;
+  min-height:180px
+}
+.radar.editing {
+  -webkit-app-region:drag;
+  cursor:move;
+  outline:1px dashed var(--line)
+}
+.edit-hint {
+  display:none;
+  position:absolute;
+  top:-14px;
+  left:50%;
+  transform:translateX(-50%);
+  font:7px Segoe UI;
+  color:var(--line);
+  white-space:nowrap
+}
+.editing .edit-hint {
+  display:block
+}
+.rail {
+  position:absolute;
+  top:8%;
+  bottom:8%;
+  width:var(--bg-width);
+  background:var(--bg);
+  border-radius:var(--background-cap);
+  overflow:hidden
+}
+.rail.left {
+  left:5%
+}
+.rail.right {
+  right:5%
+}
+.segment {
+  position:absolute;
+  left:50%;
+  width:var(--line-width);
+  height:28%;
+  transform:translate(-50%,-50%);
+  background:color-mix(in srgb,var(--line) calc(var(--line-opacity)*100%),transparent);
+  border-radius:0;
+  transition:top var(--transition) linear
+}
+#resizeHint {
+  display:none;
+  position:fixed;
+  right:1px;
+  bottom:0;
+  color:var(--line);
+  font-size:18px
+}
+.editing~#resizeHint {
+  display:block
+}
