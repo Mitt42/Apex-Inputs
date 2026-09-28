@@ -1,0 +1,9 @@
+Install and run:
+  npm install
+  npm start
+
+Verify the JavaScript source before publishing:
+  npm run check
+
+The live telemetry reader requires Windows x64 and iRacing. Demo mode can be
+used on development computers without iRacing installed.

@@ -49,6 +49,13 @@ function formatLapTime(value, precise) {
   return `${minutes}:${seconds.toFixed(precise ? 3 : 1).padStart(precise ? 6 : 4, '0')}`;
 }
 
+/** Remove stale demonstration rows while waiting for live iRacing drivers. */
+function clearStandings() {
+  $('rows').innerHTML = '';
+  histories.clear();
+  previousGaps.clear();
+}
+
 /** Group cars by class and render the configured number of rows per group. */
 function render() {
   if (!settings) return;
@@ -64,7 +71,13 @@ function render() {
   $('standings').style.width = `${Math.max(1, (innerWidth - 14) / (options.scale / 100))}px`;
   $('standings').style.height = `${Math.max(1, (innerHeight - 14) / (options.scale / 100))}px`;
   $('standings').classList.toggle('editing', settings.standingsEditMode);
-  if (!data) return;
+  if (!data
+    || (!settings.demoMode && data.demo !== false)
+    || !Array.isArray(data.cars)
+    || data.cars.length === 0) {
+    clearStandings();
+    return;
+  }
 
   const classes = new Map();
   const orderedCars = [...data.cars].sort((a, b) => a.position - b.position);

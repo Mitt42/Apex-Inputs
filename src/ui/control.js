@@ -275,7 +275,7 @@ customCard.innerHTML = "<p class=\"eyebrow\">ADVANCED</p><h3>Custom CSS</h3><p>O
 $("settingsPage").appendChild(customCard);
 $("resetCustomCss").textContent = "Load examples / reset";
 window.apex.getCustomCss().then(css => $("customCssEditor").value = css);
-$("saveCustomCss").onclick = async () => { await window.apex.saveCustomCss($("customCssEditor").value); $("customCssStatus").textContent = "Saved and applied to every window."; };
+$("saveCustomCss").onclick = async () => { const result = await window.apex.saveCustomCss($("customCssEditor").value); const hasContent = $("customCssEditor").value.trim().length > 0; $("customCssStatus").textContent = !result?.ok ? "Saved, but one or more windows could not apply the CSS." : hasContent && result.activeRules === 0 ? "Saved, but no active CSS rules were found. Check the comment markers and CSS syntax." : `Saved and applied (${result.activeRules} active rule${result.activeRules === 1 ? "" : "s"}).`; };
 $("openCustomCss").onclick = async () => { const result = await window.apex.openCustomCss(); $("customCssStatus").textContent = result.error || `Opened ${result.file}`; };
 $("reloadCustomCss").onclick = async () => { const css = await window.apex.reloadCustomCss(); $("customCssEditor").value = css; $("customCssStatus").textContent = "File reloaded and applied."; };
 $("resetCustomCss").onclick = async () => { const css = await window.apex.resetCustomCss(); $("customCssEditor").value = css; $("customCssStatus").textContent = "Custom CSS reset."; };

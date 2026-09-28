@@ -4,6 +4,7 @@
 const { EventEmitter } = require("node:events");
 const fs = require("node:fs");
 const EMPTY_FRAME = Object.freeze({ connected: false, demo: false, throttle: 0, brake: 0, clutch: 0, steering: 0, gear: 0, abs: false, fuelLevel: 0, fuelPerLap: 0, lapsRemaining: 0 });
+const EMPTY_RELATIVE_FRAME = Object.freeze({ demo: false, cars: [] });
 class Telemetry extends EventEmitter {
     constructor() {
         super();
@@ -23,6 +24,7 @@ class Telemetry extends EventEmitter {
         this.sessionVersion = -1;
         this.session = null;
         this.frameErrorCount = 0;
+        this.firstFramePending = false;
     }
     setLogFile(file) {
         this.logFile = file;
@@ -50,27 +52,23 @@ class Telemetry extends EventEmitter {
         }
         this.setStatus("waiting", "\u00C0 espera do iRacing");
         this.emit("data", EMPTY_FRAME);
+        // Clear demonstration participants immediately. Real drivers are only
+        // displayed after iRacing supplies a valid participant frame.
+        this.emit("relative", EMPTY_RELATIVE_FRAME);
         await this.tryConnect();
         this.retryTimer = setInterval(() => {
             if (!this.sdk && !this.connecting)
                 void this.tryConnect();
         }, 2000);
     }
-    loadNativeSdk() {
+    loadSdkLibrary() {
         if (this.native)
             return this.native;
-        let native;
-        try {
-            native = require("@irsdk-node/native");
-        }
-        catch {
-            const { createRequire } = require("node:module");
-            native = createRequire(require.resolve("irsdk-node"))("@irsdk-node/native");
-        }
-        if (native.sdkIsMocked)
-            throw new Error("O binding nativo do iRacing n\u00E3o foi carregado.");
-        this.native = native;
-        return native;
+        // Use the library's supported wrapper instead of invoking the native
+        // binding directly. It initializes the SDK state and safely copies
+        // shared-memory values before application code reads them.
+        this.native = require("irsdk-node");
+        return this.native;
     }
 
     // Convert the SDK's typed buffers into plain arrays before sending data to
@@ -107,7 +105,8 @@ class Telemetry extends EventEmitter {
                 const { createRequire } = require("node:module");
                 yaml = createRequire(require.resolve("irsdk-node"))("js-yaml");
             }
-            this.session = yaml.load(this.sdk.getSessionData() || "") || {};
+            const sessionData = this.sdk.getSessionData() || {};
+            this.session = typeof sessionData === "string" ? yaml.load(sessionData) || {} : sessionData;
             this.sessionVersion = version;
         }
         catch (error) {
@@ -118,7 +117,11 @@ class Telemetry extends EventEmitter {
     // Build the shared driver model consumed by Relative and Standings.
     emitRelative(telemetry) {
         this.updateSessionData();
-        const array = name => this.decodeVariable(telemetry[name] || this.sdk.getTelemetryVariable?.(name)) || [];
+        // The complete telemetry snapshot already contains every variable made
+        // available by the current car. Do not query missing optional variables
+        // individually: some native SDK builds crash when resolving a name that
+        // is absent for the active car.
+        const array = name => this.decodeVariable(telemetry[name]) || [];
         const scalar = name => array(name)[0] ?? 0;
         const player = scalar("PlayerCarIdx");
         const positions = array("CarIdxPosition");
@@ -171,6 +174,7 @@ class Telemetry extends EventEmitter {
             car.iratingGain = Math.round(160 * (result - expected));
         }
         this.emit("relative", {
+            demo: false,
             cars,
             playerCarIdx: player,
             sessionType: this.session?.SessionInfo?.Sessions?.[scalar("SessionNum")]?.SessionType || "",
@@ -195,8 +199,11 @@ class Telemetry extends EventEmitter {
             return false;
         this.connecting = true;
         try {
-            const { NativeSDK } = this.loadNativeSdk();
-            const sdk = new NativeSDK();
+            const { IRacingSDK } = this.loadSdkLibrary();
+            const sdk = new IRacingSDK({
+                autoEnableTelemetry: true,
+                useTelemVariableCache: false
+            });
             if (!sdk.startSDK()) {
                 sdk.stopSDK?.();
                 this.setStatus("waiting", "\u00C0 espera do iRacing");
@@ -206,6 +213,7 @@ class Telemetry extends EventEmitter {
             this.sdk = sdk;
             this.lastDataAt = Date.now();
             this.frameErrorCount = 0;
+            this.firstFramePending = true;
             this.setStatus("connecting", "A sincronizar telemetria");
             this.log("sdk-started");
             this.dataTimer = setInterval(() => this.readFrame(), 1000 / 60);
@@ -226,24 +234,30 @@ class Telemetry extends EventEmitter {
         if (!this.sdk)
             return;
         try {
+            if (this.firstFramePending === true) {
+                this.log("first-frame-wait-started");
+                this.firstFramePending = "waiting";
+            }
             if (!this.sdk.waitForData(8)) {
                 if (Date.now() - this.lastDataAt > 30000)
                     this.disconnect();
                 return;
             }
+            if (this.firstFramePending)
+                this.log("first-frame-wait-complete");
             this.lastDataAt = Date.now();
-            const telemetry = this.sdk.getTelemetryData() || {};
+            const telemetry = this.sdk.getTelemetry() || {};
+            if (this.firstFramePending) {
+                this.log("first-frame-telemetry-complete", { telemetryKeys: Object.keys(telemetry).length });
+                this.firstFramePending = false;
+            }
             const readVariable = name => {
-                let variable = telemetry[name];
-                if (!variable)
-                    variable = this.sdk.getTelemetryVariable?.(name);
-                const decoded = this.decodeVariable(variable);
+                const decoded = this.decodeVariable(telemetry[name]);
                 const item = decoded?.[decoded.length - 1];
                 const number = Number(item);
                 return Number.isFinite(number) ? number : null;
             };
-            const readArray = name => { let variable = telemetry[name]; if (!variable)
-                variable = this.sdk.getTelemetryVariable?.(name); return this.decodeVariable(variable) || []; };
+            const readArray = name => this.decodeVariable(telemetry[name]) || [];
             const values = {
                 throttle: readVariable("Throttle"),
                 brake: readVariable("Brake"),
@@ -265,15 +279,37 @@ class Telemetry extends EventEmitter {
             const sessionType = this.session?.SessionInfo?.Sessions?.[readVariable("SessionNum") ?? 0]?.SessionType || "";
             const ratings = (this.session?.DriverInfo?.Drivers || []).map(driver => Number(driver.IRating)).filter(value => value > 0);
             const sof = ratings.length ? Math.round(ratings.length / ratings.reduce((sum, value) => sum + 1 / value, 0)) : 0;
-            const sessionDrivers = this.session?.DriverInfo?.Drivers || [], playerIdx = readVariable("PlayerCarIdx") ?? 0;
-            const playerSpeed = Number(sessionDrivers.find(driver => driver.CarIdx === playerIdx)?.CarClassRelSpeed || 0);
+            const sessionDrivers = this.session?.DriverInfo?.Drivers || [];
+            const telemetryPlayerIdx = readVariable("PlayerCarIdx");
+            const sessionPlayerIdx = Number(this.session?.DriverInfo?.DriverCarIdx);
+            const playerIdx = telemetryPlayerIdx ?? (Number.isFinite(sessionPlayerIdx) ? sessionPlayerIdx : 0);
+            const playerDriver = sessionDrivers.find(driver => Number(driver.CarIdx) === Number(playerIdx)) || {};
+            const playerSpeed = Number(playerDriver.CarClassRelSpeed || 0);
             const fastestSpeed = Math.max(0, ...sessionDrivers.map(driver => Number(driver.CarClassRelSpeed || 0)));
-            const playerDriver = sessionDrivers.find(driver => driver.CarIdx === playerIdx) || {};
             const trackLengthKm = parseFloat(this.session?.WeekendInfo?.TrackLength) || 0;
-            const pitPct = Number(playerDriver.DriverPitTrkPct || 0), lapPct = readVariable("LapDistPct") ?? 0;
-            const pitDistance = ((pitPct - lapPct + 1) % 1) * trackLengthKm * 1000;
+            const lapDistances = readArray("CarIdxLapDistPct");
+            const telemetryLapPct = readVariable("LapDistPct");
+            const playerLapPct = Number(lapDistances[playerIdx]);
+            const lapPct = Number.isFinite(playerLapPct) && playerLapPct >= 0
+                ? playerLapPct
+                : telemetryLapPct;
+            const pitBoxPct = Number(playerDriver.DriverPitTrkPct);
+            let pitDistance = null;
+            if (trackLengthKm > 0
+                && Number.isFinite(lapPct)
+                && Number.isFinite(pitBoxPct)
+                && pitBoxPct >= 0
+                && pitBoxPct <= 1) {
+                let distancePct = pitBoxPct - lapPct;
+                // A negative value in the pit lane normally means the box has
+                // just been passed. Elsewhere it means the next box is on the
+                // following lap and must wrap across the start/finish line.
+                if (distancePct < 0)
+                    distancePct = onPitRoad && distancePct > -0.5 ? 0 : distancePct + 1;
+                pitDistance = Math.max(0, distancePct * trackLengthKm * 1000);
+            }
             const pitSpeedLimit = parseFloat(this.session?.WeekendInfo?.TrackPitSpeedLimit) || 0;
-            const lapDistances = readArray("CarIdxLapDistPct"), playerLapDistance = lapDistances[playerIdx] ?? lapPct;
+            const playerLapDistance = lapDistances[playerIdx] ?? lapPct;
             const radarOffsets = lapDistances.map((value, index) => { if (index === playerIdx || value == null || value < 0)
                 return null; let delta = value - playerLapDistance; if (delta > 0.5)
                 delta -= 1; if (delta < -0.5)
@@ -471,6 +507,7 @@ class Telemetry extends EventEmitter {
             classId: index % 3
         }));
         return {
+            demo: true,
             cars,
             playerCarIdx: 4,
             sessionType: "Race",

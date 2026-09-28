@@ -3,26 +3,6 @@
  */
 const { contextBridge, ipcRenderer } = require("electron");
 
-// Reuse one style element so saving custom CSS updates the page immediately
-// without accumulating duplicate style blocks.
-function applyCustomCss(css) {
-    let style = document.getElementById("apex-custom-css");
-    if (!style) {
-        style = document.createElement("style");
-        style.id = "apex-custom-css";
-        document.head.appendChild(style);
-    }
-    style.textContent = css;
-}
-
-window.addEventListener("DOMContentLoaded", () => {
-    // The page name lets custom.css target one overlay without affecting the
-    // remaining renderer windows.
-    document.documentElement.dataset.apexPage = location.pathname.split("/").pop().replace(".html", "");
-    ipcRenderer.invoke("custom-css:get").then(applyCustomCss);
-});
-ipcRenderer.on("custom-css", (_, css) => applyCustomCss(css));
-
 // Only explicit application operations are exposed. Renderer pages never
 // receive direct access to Node.js, ipcRenderer, or the local file system.
 contextBridge.exposeInMainWorld("apex", {

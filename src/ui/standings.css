@@ -42,8 +42,25 @@ html,body {
 .editing .edit-hint {
   display:block
 }
+.standings header {
+  display:flex;
+  align-items:center;
+  height:42px;
+  padding:0 12px;
+  background:color-mix(in srgb,var(--bg) 96%,transparent);
+  border-bottom:2px solid var(--accent);
+  border-radius:5px 5px 0 0
+}
+.standings header strong {
+  font-size:calc(12px * var(--font-scale));
+  letter-spacing:2px
+}
+#rows {
+  overflow:hidden;
+  border-radius:0 0 5px 5px
+}
 .class-group {
-  margin-bottom:5px;
+  margin:0 0 5px;
   border-top:2px solid #ffffff29
 }
 .standing-row {

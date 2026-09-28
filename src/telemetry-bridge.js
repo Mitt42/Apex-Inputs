@@ -2,9 +2,9 @@
  * Runs telemetry outside the Electron main process and restarts it without closing the user interface if the native SDK fails.
  */
 const { EventEmitter } = require("node:events");
+const { fork } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
-const { utilityProcess } = require("electron");
 class TelemetryBridge extends EventEmitter {
     constructor() {
         super();
@@ -14,6 +14,7 @@ class TelemetryBridge extends EventEmitter {
         this.running = false;
         this.stopping = false;
         this.restartTimer = null;
+        this.recentCrashes = [];
     }
     setLogFile(file) {
         this.logFile = file;
@@ -34,13 +35,26 @@ class TelemetryBridge extends EventEmitter {
         if (!this.child)
             this.spawn();
         else
-            this.child.postMessage({ type: "start", demo: this.demo, logFile: this.logFile });
+            this.send({ type: "start", demo: this.demo, logFile: this.logFile });
+    }
+    send(message) {
+        if (!this.child?.connected)
+            return;
+        try {
+            this.child.send(message);
+        }
+        catch { }
     }
     spawn() {
         if (!this.running || this.child)
             return;
-        const worker = utilityProcess.fork(path.join(__dirname, "telemetry-worker.js"), [], {
-            serviceName: "Apex Inputs Telemetry"
+        // Electron utility processes can terminate inside some native shared-memory
+        // bindings on Windows. Running the worker as an ordinary Node child keeps
+        // the SDK isolated while using the native module in its supported context.
+        const worker = fork(path.join(__dirname, "telemetry-worker.js"), [], {
+            env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" },
+            stdio: ["ignore", "ignore", "ignore", "ipc"],
+            windowsHide: true
         });
         this.child = worker;
         this.log("telemetry-worker-started", { pid: worker.pid, demo: this.demo });
@@ -62,14 +76,23 @@ class TelemetryBridge extends EventEmitter {
             this.child = null;
             if (expected)
                 return;
+            const now = Date.now();
+            this.recentCrashes = this.recentCrashes.filter(time => now - time < 15000);
+            this.recentCrashes.push(now);
             this.emit("status", {
                 state: "error",
-                label: "Telemetry restarted",
+                label: "SDK error",
                 detail: `The iRacing telemetry process stopped (code ${code}). The app remains open.`
             });
+            // Avoid an endless crash loop. Changing telemetry mode or restarting
+            // the application gives the worker a clean opportunity to reconnect.
+            if (this.recentCrashes.length >= 3) {
+                this.log("telemetry-worker-restart-paused", { crashes: this.recentCrashes.length });
+                return;
+            }
             this.restartTimer = setTimeout(() => this.spawn(), 2000);
         });
-        worker.postMessage({ type: "start", demo: this.demo, logFile: this.logFile });
+        this.send({ type: "start", demo: this.demo, logFile: this.logFile });
     }
     stop() {
         this.running = false;
@@ -78,10 +101,7 @@ class TelemetryBridge extends EventEmitter {
         this.restartTimer = null;
         if (!this.child)
             return;
-        try {
-            this.child.postMessage({ type: "stop" });
-        }
-        catch { }
+        this.send({ type: "stop" });
         const child = this.child;
         setTimeout(() => {
             try {

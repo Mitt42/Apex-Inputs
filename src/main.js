@@ -18,13 +18,15 @@ const DEFAULT_CUSTOM_CSS = `/* =================================================
    =====================================================
    This file is preserved beside your settings.
    All examples below are disabled with comment markers.
-   To enable one, remove the opening slash-star and closing star-slash.
+   To enable one, remove the standalone opening marker before its CSS and the
+   standalone closing marker after it. Keep the labelled heading comment.
 
    Window names:
    control, overlay, relative, fuel, pit, mgu, radar, standings
    ===================================================== */
 
-/* APP - Purple theme
+/* APP - Purple theme */
+/*
 html[data-apex-page="control"] {
   --accent: #b26cff;
   --bg: #090611;
@@ -33,7 +35,8 @@ html[data-apex-page="control"] {
 }
 */
 
-/* APP - Rounder panels and buttons
+/* APP - Rounder panels and buttons */
+/*
 html[data-apex-page="control"] .panel,
 html[data-apex-page="control"] .settings-card,
 html[data-apex-page="control"] .module,
@@ -42,7 +45,8 @@ html[data-apex-page="control"] button {
 }
 */
 
-/* INPUTS - Rounded glass style
+/* INPUTS - Rounded glass style */
+/*
 html[data-apex-page="overlay"] .pedal,
 html[data-apex-page="overlay"] .gear,
 html[data-apex-page="overlay"] .steering,
@@ -53,12 +57,14 @@ html[data-apex-page="overlay"] .graph {
 }
 */
 
-/* INPUTS - Bigger gear and speed
+/* INPUTS - Bigger gear and speed */
+/*
 html[data-apex-page="overlay"] .gear strong { font-size: 90px; }
 html[data-apex-page="overlay"] .gear .speed { font-size: 13px; color: #ffffff; }
 */
 
-/* RELATIVE - Taller rows and highlighted player
+/* RELATIVE - Taller rows and highlighted player */
+/*
 html[data-apex-page="relative"] .car-row { height: 32px; }
 html[data-apex-page="relative"] .car-row.player {
   background: #5b3df033;
@@ -66,34 +72,40 @@ html[data-apex-page="relative"] .car-row.player {
 }
 */
 
-/* RELATIVE - Hide manufacturer and rating badges
+/* RELATIVE - Hide manufacturer and rating badges */
+/*
 html[data-apex-page="relative"] .maker,
 html[data-apex-page="relative"] .badge { display: none; }
 */
 
-/* FUEL - Large values with transparent background
+/* FUEL - Large values with transparent background */
+/*
 html[data-apex-page="fuel"] .fuel { background: rgba(0, 0, 0, 0.55); }
 html[data-apex-page="fuel"] .calculations strong { font-size: 28px; }
 */
 
-/* PIT HELPER - Neon limiter
+/* PIT HELPER - Neon limiter */
+/*
 html[data-apex-page="pit"] .limiter {
   text-shadow: 0 0 10px currentColor;
   box-shadow: 0 0 14px currentColor;
 }
 */
 
-/* MGU - Thin compact bars
+/* MGU - Thin compact bars */
+/*
 html[data-apex-page="mgu"] .energy { height: 26px; border-width: 2px; }
 html[data-apex-page="mgu"] .energy strong { font-size: 14px; }
 */
 
-/* RADAR - Wider background bars
+/* RADAR - Wider background bars */
+/*
 html[data-apex-page="radar"] .rail { width: 28px; opacity: 0.85; }
 html[data-apex-page="radar"] .segment { width: 12px; }
 */
 
-/* STANDINGS - Compact broadcast style
+/* STANDINGS - Compact broadcast style */
+/*
 html[data-apex-page="standings"] .standing-row {
   min-height: 25px;
   font-family: Consolas, monospace;
@@ -104,7 +116,8 @@ html[data-apex-page="standings"] .standing-row.player {
 }
 */
 
-/* ALL OVERLAYS - Stronger shadow
+/* ALL OVERLAYS - Stronger shadow */
+/*
 html:not([data-apex-page="control"]) main {
   filter: drop-shadow(0 10px 18px rgba(0, 0, 0, 0.85));
 }
@@ -112,6 +125,12 @@ html:not([data-apex-page="control"]) main {
 `;
 if (app.isPackaged)
     app.setPath("userData", path.join(path.dirname(process.execPath), "data"));
+
+// Every application window receives the saved stylesheet after its document
+// has loaded. The same path is used by newly enabled overlays and reloads.
+app.on("web-contents-created", (_event, contents) => {
+    contents.on("did-finish-load", () => void applyCustomCssToContents(contents));
+});
 
 // -----------------------------------------------------------------------------
 // Window creation
@@ -264,15 +283,82 @@ function publishSettings() {
 function customCssPath() { return path.join(app.getPath("userData"), "custom.css"); }
 function ensureCustomCss() { const file = customCssPath(); if (!fs.existsSync(file))
     fs.writeFileSync(file, DEFAULT_CUSTOM_CSS, "utf8"); return file; }
+function normalizeCustomCss(css) {
+    // Older examples placed their label inside the opening comment marker.
+    // Users following the old instructions could leave that label as bare,
+    // invalid CSS. Convert only known example headings into safe comments.
+    return String(css).replace(/^(APP|INPUTS|RELATIVE|FUEL|PIT HELPER|MGU|RADAR|STANDINGS|ALL OVERLAYS) - ([^\r\n{}/*]+)$/gm, "/* $1 - $2 */");
+}
 function readCustomCss() { try {
-    return fs.readFileSync(ensureCustomCss(), "utf8");
+    const file = ensureCustomCss();
+    const original = fs.readFileSync(file, "utf8");
+    const normalized = normalizeCustomCss(original);
+    if (normalized !== original)
+        fs.writeFileSync(file, normalized, "utf8");
+    return normalized;
 }
 catch {
     return DEFAULT_CUSTOM_CSS;
 } }
-function publishCustomCss(css = readCustomCss()) { for (const win of [controlWindow, overlayWindow, relativeWindow, fuelWindow, pitWindow, mguWindow, radarWindow, standingsWindow])
-    if (win && !win.isDestroyed())
-        win.webContents.send("custom-css", css); }
+async function applyCustomCssToContents(contents, css = readCustomCss()) {
+    if (!contents || contents.isDestroyed())
+        return false;
+    // Run in the renderer's main world after the document is ready. This avoids
+    // context-isolation differences in preload scripts and makes the result
+    // immediately visible without reloading the window.
+    const source = `(${function injectCustomCss(value) {
+        document.documentElement.dataset.apexPage = location.pathname.split("/").pop().replace(".html", "");
+        let style = document.getElementById("apex-custom-css");
+        if (!style) {
+            style = document.createElement("style");
+            style.id = "apex-custom-css";
+            document.head.appendChild(style);
+        }
+        style.textContent = value;
+        const promoteRules = rules => {
+            for (const rule of Array.from(rules || [])) {
+                if (rule.cssRules)
+                    promoteRules(rule.cssRules);
+                if (!rule.style)
+                    continue;
+                for (let index = 0; index < rule.style.length; index += 1) {
+                    const property = rule.style[index];
+                    if (rule.style.getPropertyPriority(property) !== "important")
+                        rule.style.setProperty(property, rule.style.getPropertyValue(property), "important");
+                }
+            }
+        };
+        try {
+            promoteRules(style.sheet?.cssRules);
+        }
+        catch { }
+        return { page: document.documentElement.dataset.apexPage, rules: style.sheet?.cssRules.length || 0 };
+    }.toString()})(${JSON.stringify(String(css))})`;
+    try {
+        const result = await contents.executeJavaScript(source, true);
+        telemetry.log("custom-css-applied", {
+            page: result?.page || contents.getURL(),
+            rules: result?.rules || 0,
+            length: String(css).length
+        });
+        return result;
+    }
+    catch (error) {
+        telemetry.log("custom-css-apply-error", { detail: error?.message || String(error) });
+        return null;
+    }
+}
+async function publishCustomCss(css = readCustomCss()) {
+    const windows = [controlWindow, overlayWindow, relativeWindow, fuelWindow, pitWindow, mguWindow, radarWindow, standingsWindow]
+        .filter(win => win && !win.isDestroyed());
+    const results = await Promise.all(windows.map(win => applyCustomCssToContents(win.webContents, css)));
+    const validResults = results.filter(Boolean);
+    return {
+        ok: validResults.length === windows.length,
+        activeRules: Math.max(0, ...validResults.map(result => Number(result.rules) || 0)),
+        pages: validResults.map(result => result.page)
+    };
+}
 const overlayGeometry = {
     inputs: { base: [760, 230], settings: "scale", edit: "editMode", range: [70, 140] },
     relative: { base: [520, 278], settings: "relative", edit: "relativeEditMode", range: [70, 140] },
@@ -448,10 +534,14 @@ app.whenReady().then(() => {
 
 ipcMain.handle("settings:get", () => store.data);
 ipcMain.handle("custom-css:get", () => readCustomCss());
-ipcMain.handle("custom-css:save", (_, css) => { fs.writeFileSync(ensureCustomCss(), String(css), "utf8"); publishCustomCss(String(css)); return true; });
+ipcMain.handle("custom-css:save", async (_, css) => {
+    const normalized = normalizeCustomCss(css);
+    fs.writeFileSync(ensureCustomCss(), normalized, "utf8");
+    return publishCustomCss(normalized);
+});
 ipcMain.handle("custom-css:open", async () => { const file = ensureCustomCss(); const error = await shell.openPath(file); return { file, error }; });
-ipcMain.handle("custom-css:reload", () => { const css = readCustomCss(); publishCustomCss(css); return css; });
-ipcMain.handle("custom-css:reset", () => { fs.writeFileSync(ensureCustomCss(), DEFAULT_CUSTOM_CSS, "utf8"); publishCustomCss(DEFAULT_CUSTOM_CSS); return DEFAULT_CUSTOM_CSS; });
+ipcMain.handle("custom-css:reload", async () => { const css = readCustomCss(); await publishCustomCss(css); return css; });
+ipcMain.handle("custom-css:reset", async () => { fs.writeFileSync(ensureCustomCss(), DEFAULT_CUSTOM_CSS, "utf8"); await publishCustomCss(DEFAULT_CUSTOM_CSS); return DEFAULT_CUSTOM_CSS; });
 ipcMain.handle("settings:update", (_, patch) => {
     const oldDemo = store.data.demoMode;
     const oldRelativeRows = store.data.relative.rows;

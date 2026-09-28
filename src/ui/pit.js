@@ -19,16 +19,17 @@ function render() {
     $("pitHelper").classList.toggle("editing", settings.pitEditMode);
     if (!telemetry)
         return;
-    const distance = Number(telemetry.pitDistance), demo = Boolean(telemetry.demo);
-    const nearPit = demo || Boolean(telemetry.onPitRoad) || Boolean(telemetry.pitWarning) || (Number.isFinite(distance) && distance >= 0 && distance <= p.activationDistance);
+    const distance = telemetry.pitDistance == null ? NaN : Number(telemetry.pitDistance), demo = Boolean(telemetry.demo);
+    const hasPitBoxDistance = Number.isFinite(distance);
+    const nearPit = demo || Boolean(telemetry.onPitRoad) || Boolean(telemetry.pitWarning) || (hasPitBoxDistance && distance >= 0 && distance <= p.activationDistance);
     const raceStart = p.raceStartHelper && (demo || (telemetry.speedKph || 0) < 3);
     $("pitHelper").style.visibility = settings.pitEditMode || nearPit || raceStart ? "visible" : "hidden";
     $("limiter").classList.toggle("on", Boolean(telemetry.pitLimiterOn));
     $("limiter").style.display = p.pitLimiter && nearPit ? "inline-block" : "none";
     const parts = [];
     if (p.pitLaneHelper && nearPit) {
-        const remaining = Math.max(0, distance || 0), limit = Math.max(1, telemetry.pitSpeedLimit || 60), speed = Math.max(0, telemetry.speedKph || 0);
-        parts.push(meter("distance", `${Math.round(remaining)} m`, remaining, Math.min(100, remaining / 50 * 100)));
+        const remaining = hasPitBoxDistance ? Math.max(0, distance) : 0, limit = Math.max(1, telemetry.pitSpeedLimit || 60), speed = Math.max(0, telemetry.speedKph || 0);
+        parts.push(meter("distance", hasPitBoxDistance ? `${Math.round(remaining)} m` : "-- m", remaining, Math.min(100, remaining / 50 * 100)));
         parts.push(meter("speed", speed.toFixed(1), speed / limit * 100, speed / limit * 100));
     }
     if (raceStart) {

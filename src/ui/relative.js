@@ -41,6 +41,13 @@ function clock(seconds) {
 function manufacturer(car = "") {
     return [["Porsche", "POR"], ["BMW", "BMW"], ["Ferrari", "FER"], ["Mercedes", "AMG"], ["Audi", "AUD"], ["McLaren", "MCL"], ["Toyota", "TOY"], ["Chevrolet", "CHE"]].find(([name]) => car.toLowerCase().includes(name.toLowerCase()))?.[1] || "CAR";
 }
+function clearRelative() {
+    $("sessionInfo").innerHTML = "";
+    $("cars").innerHTML = "";
+    const footer = $("relativeFooter");
+    if (footer)
+        footer.remove();
+}
 function render() {
     if (!settings)
         return;
@@ -52,8 +59,12 @@ function render() {
     $("relative").style.width = `${Math.max(1, (innerWidth - 16) / (r.scale / 100))}px`;
     $("relative").style.height = `${Math.max(1, (innerHeight - 16) / (r.scale / 100))}px`;
     $("relative").classList.toggle("editing", settings.relativeEditMode);
-    if (!data)
+    // Never retain demonstration drivers after Demo mode is disabled. The
+    // overlay remains empty until a real iRacing participant frame arrives.
+    if (!data || (!settings.demoMode && data.demo !== false) || !Array.isArray(data.cars) || data.cars.length === 0) {
+        clearRelative();
         return;
+    }
     const info = [];
     if (r.oilTemp)
         info.push(`OIL ${temp(data.oilTemp)}`);
@@ -93,7 +104,7 @@ function render() {
         const maker = r.manufacturerLogo === "always" || (r.manufacturerLogo === "multiclass" && multipleClasses) ? `<b class="maker">${manufacturer(car.car)}</b>` : "";
         const lapBadge = r.pitBadge && car.lastLap ? ` · LAST ${clock(car.lastLap)}` : "";
         return `<div class="car-row ${stripe} ${car.isPlayer ? "player" : ""}" style="${rowStyle}"><span class="position">${car.position}</span><span class="number" style="${numberStyle}">${r.showCarNumbers ? car.number : ""}</span><span class="driver">${formatName(car.name, r.driverNameStyle, r.nameCase)}${car.onPitRoad && r.pitBadge ? "<b class=\"pit\">PIT</b>" : ""}${badges}${gain}${maker}<small>${car.car || ""}${lapBadge}</small></span><span class="gap ${car.isPlayer ? "player-gap" : car.gap < 0 ? "ahead" : "behind"}">${gap}</span></div>`;
-    }).join("") : "<div class=\"empty\">Waiting for cars\u2026</div>";
+    }).join("") : "";
     let footer = $("relativeFooter");
     if (!footer) {
         footer = document.createElement("div");

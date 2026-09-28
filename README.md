@@ -34,9 +34,9 @@ npm install
 npm start
 ```
 
-Alternatively, double-click `start-apex-inputs.cmd` on Windows. The launcher
+Alternatively, double-click `iniciar-apex-inputs.cmd` on Windows. The launcher
 checks for Node.js, installs missing dependencies automatically on the first
-run, and then starts Apex Inputs.
+run, and then starts Apex Inputs. It does not require Codex or pnpm.
 
 Run the syntax verification before committing changes:
 
@@ -60,7 +60,7 @@ telemetry-bridge.js  ->  main.js
                 control panel and overlays
 ```
 
-The native SDK runs in an Electron utility process. If the native component
+The native SDK runs in an isolated Node child process. If the native component
 stops unexpectedly, the control panel remains open and telemetry is restarted.
 Renderer pages use `contextIsolation` and never receive direct Node.js access.
 
@@ -70,7 +70,7 @@ Renderer pages use `contextIsolation` and never receive direct Node.js access.
 src/
   main.js                 Electron lifecycle, windows, IPC, layouts and profiles
   telemetry.js            iRacing decoding, calculations and demo data
-  telemetry-bridge.js     Utility-process supervision and restart handling
+  telemetry-bridge.js     Telemetry-process supervision and restart handling
   telemetry-worker.js     Isolated telemetry process entry point
   preload.js              Safe renderer API
   store.js                Persistent settings and compatibility merging

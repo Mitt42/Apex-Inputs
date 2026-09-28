@@ -1,20 +1,19 @@
 /**
- * Hosts the telemetry service inside an Electron utility process and forwards normalized events to the main process.
+ * Hosts telemetry in an isolated Node process and forwards normalized events to Electron.
  */
 const { Telemetry } = require("./telemetry");
 const telemetry = new Telemetry();
 let started = false;
 function send(type, payload) {
     try {
-        process.parentPort.postMessage({ type, payload });
+        process.send?.({ type, payload });
     }
     catch { }
 }
 telemetry.on("data", payload => send("data", payload));
 telemetry.on("relative", payload => send("relative", payload));
 telemetry.on("status", payload => send("status", payload));
-process.parentPort.on("message", event => {
-    const message = event?.data || event;
+process.on("message", message => {
     if (!message || typeof message !== "object")
         return;
     if (message.type === "start") {
@@ -40,4 +39,5 @@ process.on("unhandledRejection", error => {
 process.on("disconnect", () => {
     if (started)
         telemetry.stop();
+    process.exit(0);
 });
