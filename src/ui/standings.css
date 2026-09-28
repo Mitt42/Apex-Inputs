@@ -1,5 +1,7 @@
 /*
- * Defines the standings component of Apex Inputs.
+ * Standings overlay presentation.
+ * A dense grid is used because complete race order contains more information than
+ * Relative. Class separators and the player highlight improve quick recognition.
  */
 
 :root {

@@ -1,5 +1,8 @@
 /**
- * Renders the contextual pit-lane helper, limiter state, speed comparison, and race-start controls.
+ * Contextual Pit Helper renderer.
+ *
+ * The Electron window remains ready while this panel appears only near the pits,
+ * on pit road, during an iRacing warning or while preparing a race start.
  */
 let settings, telemetry;
 const $ = id => document.getElementById(id);
@@ -21,6 +24,7 @@ function render() {
         return;
     const distance = telemetry.pitDistance == null ? NaN : Number(telemetry.pitDistance), demo = Boolean(telemetry.demo);
     const hasPitBoxDistance = Number.isFinite(distance);
+    // Multiple signals are combined because tracks trigger pit warnings differently.
     const nearPit = demo || Boolean(telemetry.onPitRoad) || Boolean(telemetry.pitWarning) || (hasPitBoxDistance && distance >= 0 && distance <= p.activationDistance);
     const raceStart = p.raceStartHelper && (demo || (telemetry.speedKph || 0) < 3);
     $("pitHelper").style.visibility = settings.pitEditMode || nearPit || raceStart ? "visible" : "hidden";
@@ -28,6 +32,7 @@ function render() {
     $("limiter").style.display = p.pitLimiter && nearPit ? "inline-block" : "none";
     const parts = [];
     if (p.pitLaneHelper && nearPit) {
+        // A minimum speed limit of one prevents division by zero during session loading.
         const remaining = hasPitBoxDistance ? Math.max(0, distance) : 0, limit = Math.max(1, telemetry.pitSpeedLimit || 60), speed = Math.max(0, telemetry.speedKph || 0);
         parts.push(meter("distance", hasPitBoxDistance ? `${Math.round(remaining)} m` : "-- m", remaining, Math.min(100, remaining / 50 * 100)));
         parts.push(meter("speed", speed.toFixed(1), speed / limit * 100, speed / limit * 100));

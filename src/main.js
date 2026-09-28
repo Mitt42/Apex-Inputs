@@ -1,5 +1,19 @@
 /**
- * Owns the Electron application lifecycle, overlay windows, IPC handlers, layout editing, profiles, and persistent customization.
+ * Electron main process and central coordinator for Apex Inputs.
+ *
+ * The application is split into three security and reliability layers:
+ *
+ * 1. This main process owns native desktop windows, files and application state.
+ * 2. Renderer pages under src/ui draw the interface without direct Node.js access.
+ * 3. A separate Node child process reads iRacing shared memory through the SDK.
+ *
+ * Telemetry follows this route:
+ * iRacing shared memory -> telemetry worker -> TelemetryBridge -> main process
+ * -> Electron IPC -> individual overlay renderer.
+ *
+ * User commands travel in the opposite direction through preload.js. Keeping
+ * these responsibilities separate prevents a renderer or SDK failure from gaining
+ * unrestricted file access or unnecessarily closing the complete interface.
  */
 const path = require("node:path");
 const fs = require("node:fs");
@@ -7,7 +21,10 @@ const { app, BrowserWindow, ipcMain, screen, shell } = require("electron");
 const { Store } = require("./store");
 const { defaults } = require("./defaults");
 const { TelemetryBridge } = require("./telemetry-bridge");
-let controlWindow, overlayWindow, relativeWindow, fuelWindow, pitWindow, mguWindow, radarWindow, standingsWindow, store;
+// Each overlay is a separate transparent BrowserWindow. Independent windows let
+// users position overlays freely and allow hidden overlays to consume no screen area.
+let controlWindow, overlayWindow, relativeWindow, fuelWindow, pitWindow, mguWindow, p2pWindow, radarWindow, standingsWindow, store;
+// This flag distinguishes closing the control window from an intentional full shutdown.
 let isQuitting = false;
 const telemetry = new TelemetryBridge();
 
@@ -22,7 +39,7 @@ const DEFAULT_CUSTOM_CSS = `/* =================================================
    standalone closing marker after it. Keep the labelled heading comment.
 
    Window names:
-   control, overlay, relative, fuel, pit, mgu, radar, standings
+   control, overlay, relative, fuel, pit, mgu, p2p, radar, standings
    ===================================================== */
 
 /* APP - Purple theme */
@@ -98,6 +115,14 @@ html[data-apex-page="mgu"] .energy { height: 26px; border-width: 2px; }
 html[data-apex-page="mgu"] .energy strong { font-size: 14px; }
 */
 
+/* PUSH TO PASS - Compact status panel */
+/*
+html[data-apex-page="p2p"] main {
+  border-radius: 12px;
+  background: rgba(8, 12, 18, 0.82);
+}
+*/
+
 /* RADAR - Wider background bars */
 /*
 html[data-apex-page="radar"] .rail { width: 28px; opacity: 0.85; }
@@ -123,12 +148,15 @@ html:not([data-apex-page="control"]) main {
 }
 */
 `;
+// Portable builds keep settings beside the executable. Source/development builds
+// use Electron's normal userData directory under the current Windows account.
 if (app.isPackaged)
     app.setPath("userData", path.join(path.dirname(process.execPath), "data"));
 
 // Every application window receives the saved stylesheet after its document
 // has loaded. The same path is used by newly enabled overlays and reloads.
 app.on("web-contents-created", (_event, contents) => {
+    // Apply custom CSS after every document load, including overlays created later.
     contents.on("did-finish-load", () => void applyCustomCssToContents(contents));
 });
 
@@ -137,6 +165,7 @@ app.on("web-contents-created", (_event, contents) => {
 // -----------------------------------------------------------------------------
 
 function createControl() {
+    // The control panel uses a custom title bar, therefore the native frame is disabled.
     controlWindow = new BrowserWindow({
         width: 1120,
         height: 760,
@@ -156,6 +185,8 @@ function createControl() {
     });
 }
 function safeBounds(position) {
+    // Clamp saved coordinates to the closest monitor. This recovers windows after a
+    // monitor is removed or desktop resolution changes between launches.
     const area = screen.getDisplayMatching(position).workArea;
     return {
         width: Math.min(position.width, area.width),
@@ -165,6 +196,7 @@ function safeBounds(position) {
     };
 }
 function createOverlay() {
+    // Inputs is transparent, always on top and click-through outside edit mode.
     const b = safeBounds(store.data.position);
     overlayWindow = new BrowserWindow({
         ...b,
@@ -189,6 +221,7 @@ function createOverlay() {
         overlayWindow.hide();
 }
 function createRelativeOverlay() {
+    // Relative receives the slower participant model rather than every 60 Hz input frame.
     const b = safeBounds(store.data.relativePosition);
     relativeWindow = new BrowserWindow({
         ...b,
@@ -217,6 +250,7 @@ function createRelativeOverlay() {
         relativeWindow.hide();
 }
 function createFuelOverlay() {
+    // Fuel calculations are rendered in their own resizable transparent surface.
     const b = safeBounds(store.data.fuelPosition);
     fuelWindow = new BrowserWindow({
         ...b,
@@ -243,6 +277,7 @@ function createFuelOverlay() {
         fuelWindow.hide();
 }
 function createPitOverlay() {
+    // Pit Helper remains created while hidden so it can appear immediately near the pits.
     const b = safeBounds(store.data.pitPosition);
     pitWindow = new BrowserWindow({ ...b, frame: false, transparent: true, backgroundColor: "#00000000", alwaysOnTop: true, skipTaskbar: true, resizable: true, movable: true, hasShadow: false, focusable: store.data.pitEditMode, webPreferences: { preload: path.join(__dirname, "preload.js"), contextIsolation: true, nodeIntegration: false, backgroundThrottling: false } });
     pitWindow.setAlwaysOnTop(true, "screen-saver");
@@ -259,6 +294,9 @@ function createPitOverlay() {
 function createMguOverlay() { const b = safeBounds(store.data.mguPosition); mguWindow = new BrowserWindow({ ...b, frame: false, transparent: true, backgroundColor: "#00000000", alwaysOnTop: true, skipTaskbar: true, resizable: true, movable: true, hasShadow: false, focusable: store.data.mguEditMode, webPreferences: { preload: path.join(__dirname, "preload.js"), contextIsolation: true, nodeIntegration: false, backgroundThrottling: false } }); mguWindow.setAlwaysOnTop(true, "screen-saver"); mguWindow.setOpacity(store.data.mgu.opacity / 100); mguWindow.setIgnoreMouseEvents(store.data.clickThrough && !store.data.mguEditMode, { forward: true }); mguWindow.loadFile(path.join(__dirname, "ui", "mgu.html")); const save = () => { if (mguWindow && !mguWindow.isDestroyed())
     store.set({ mguPosition: mguWindow.getBounds() }); }; mguWindow.on("moved", save); mguWindow.on("resized", save); if (!store.data.mguEnabled)
     mguWindow.hide(); }
+function createP2pOverlay() { const b = safeBounds(store.data.p2pPosition); p2pWindow = new BrowserWindow({ ...b, frame: false, transparent: true, backgroundColor: "#00000000", alwaysOnTop: true, skipTaskbar: true, resizable: true, movable: true, hasShadow: false, focusable: store.data.p2pEditMode, webPreferences: { preload: path.join(__dirname, "preload.js"), contextIsolation: true, nodeIntegration: false, backgroundThrottling: false } }); p2pWindow.setAlwaysOnTop(true, "screen-saver"); p2pWindow.setOpacity(store.data.p2p.opacity / 100); p2pWindow.setIgnoreMouseEvents(store.data.clickThrough && !store.data.p2pEditMode, { forward: true }); p2pWindow.loadFile(path.join(__dirname, "ui", "p2p.html")); const save = () => { if (p2pWindow && !p2pWindow.isDestroyed())
+    store.set({ p2pPosition: p2pWindow.getBounds() }); }; p2pWindow.on("moved", save); p2pWindow.on("resized", save); if (!store.data.p2pEnabled)
+    p2pWindow.hide(); }
 function createRadarOverlay() { const b = safeBounds(store.data.radarPosition); radarWindow = new BrowserWindow({ ...b, frame: false, transparent: true, backgroundColor: "#00000000", alwaysOnTop: true, skipTaskbar: true, resizable: true, movable: true, hasShadow: false, focusable: store.data.radarEditMode, webPreferences: { preload: path.join(__dirname, "preload.js"), contextIsolation: true, nodeIntegration: false, backgroundThrottling: false } }); radarWindow.setAlwaysOnTop(true, "screen-saver"); radarWindow.setOpacity(store.data.radar.opacity / 100); radarWindow.setIgnoreMouseEvents(store.data.clickThrough && !store.data.radarEditMode, { forward: true }); radarWindow.loadFile(path.join(__dirname, "ui", "radar.html")); const save = () => { if (radarWindow && !radarWindow.isDestroyed())
     store.set({ radarPosition: radarWindow.getBounds() }); }; radarWindow.on("moved", save); radarWindow.on("resized", save); if (!store.data.radarEnabled)
     radarWindow.hide(); }
@@ -266,6 +304,7 @@ function createStandingsOverlay() { const b = safeBounds(store.data.standingsPos
     store.set({ standingsPosition: standingsWindow.getBounds() }); }; standingsWindow.on("moved", save); standingsWindow.on("resized", save); if (!store.data.standingsEnabled)
     standingsWindow.hide(); }
 function saveBounds() {
+    // Electron fires this callback after both movement and resizing of Inputs.
     if (!overlayWindow || overlayWindow.isDestroyed())
         return;
     store.set({ position: overlayWindow.getBounds() });
@@ -276,18 +315,20 @@ function saveBounds() {
 // -----------------------------------------------------------------------------
 
 function publishSettings() {
-    for (const win of [controlWindow, overlayWindow, relativeWindow, fuelWindow, pitWindow, mguWindow, radarWindow, standingsWindow])
+    // One canonical settings object is broadcast to all pages after any mutation.
+    for (const win of [controlWindow, overlayWindow, relativeWindow, fuelWindow, pitWindow, mguWindow, p2pWindow, radarWindow, standingsWindow])
         if (win && !win.isDestroyed())
             win.webContents.send("settings", store.data);
 }
 function customCssPath() { return path.join(app.getPath("userData"), "custom.css"); }
+// Create the editable stylesheet only once; updates must preserve user changes.
 function ensureCustomCss() { const file = customCssPath(); if (!fs.existsSync(file))
     fs.writeFileSync(file, DEFAULT_CUSTOM_CSS, "utf8"); return file; }
 function normalizeCustomCss(css) {
     // Older examples placed their label inside the opening comment marker.
     // Users following the old instructions could leave that label as bare,
     // invalid CSS. Convert only known example headings into safe comments.
-    return String(css).replace(/^(APP|INPUTS|RELATIVE|FUEL|PIT HELPER|MGU|RADAR|STANDINGS|ALL OVERLAYS) - ([^\r\n{}/*]+)$/gm, "/* $1 - $2 */");
+    return String(css).replace(/^(APP|INPUTS|RELATIVE|FUEL|PIT HELPER|MGU|PUSH TO PASS|RADAR|STANDINGS|ALL OVERLAYS) - ([^\r\n{}/*]+)$/gm, "/* $1 - $2 */");
 }
 function readCustomCss() { try {
     const file = ensureCustomCss();
@@ -306,6 +347,8 @@ async function applyCustomCssToContents(contents, css = readCustomCss()) {
     // Run in the renderer's main world after the document is ready. This avoids
     // context-isolation differences in preload scripts and makes the result
     // immediately visible without reloading the window.
+    // Execute a small self-contained function in the page. A data attribute identifies
+    // the current overlay, allowing selectors such as html[data-apex-page="radar"].
     const source = `(${function injectCustomCss(value) {
         document.documentElement.dataset.apexPage = location.pathname.split("/").pop().replace(".html", "");
         let style = document.getElementById("apex-custom-css");
@@ -315,6 +358,8 @@ async function applyCustomCssToContents(contents, css = readCustomCss()) {
             document.head.appendChild(style);
         }
         style.textContent = value;
+        // User rules receive !important in memory so bundled overlay rules do not
+        // unexpectedly override customisation. The source custom.css stays readable.
         const promoteRules = rules => {
             for (const rule of Array.from(rules || [])) {
                 if (rule.cssRules)
@@ -349,7 +394,7 @@ async function applyCustomCssToContents(contents, css = readCustomCss()) {
     }
 }
 async function publishCustomCss(css = readCustomCss()) {
-    const windows = [controlWindow, overlayWindow, relativeWindow, fuelWindow, pitWindow, mguWindow, radarWindow, standingsWindow]
+    const windows = [controlWindow, overlayWindow, relativeWindow, fuelWindow, pitWindow, mguWindow, p2pWindow, radarWindow, standingsWindow]
         .filter(win => win && !win.isDestroyed());
     const results = await Promise.all(windows.map(win => applyCustomCssToContents(win.webContents, css)));
     const validResults = results.filter(Boolean);
@@ -360,26 +405,33 @@ async function publishCustomCss(css = readCustomCss()) {
     };
 }
 const overlayGeometry = {
+    // `base` is the design size at 100%. Width changes are converted back to a
+    // scale percentage, keeping the settings slider and native resize in sync.
     inputs: { base: [760, 230], settings: "scale", edit: "editMode", range: [70, 140] },
     relative: { base: [520, 278], settings: "relative", edit: "relativeEditMode", range: [70, 140] },
     fuel: { base: [430, 210], settings: "fuel", edit: "fuelEditMode", range: [70, 140] },
     pit: { base: [280, 430], settings: "pit", edit: "pitEditMode", range: [70, 140] },
     mgu: { base: [310, 85], settings: "mgu", edit: "mguEditMode", range: [70, 140] },
+    p2p: { base: [330, 92], settings: "p2p", edit: "p2pEditMode", range: [70, 140] },
     radar: { base: [360, 300], settings: "radar", edit: "radarEditMode", range: [60, 160] },
     standings: { base: [760, 650], settings: "standings", edit: "standingsEditMode", range: [60, 150] }
 };
 const programmaticResize = new WeakSet();
+// Weak collections mark movements initiated by code. Those operations must not be
+// mistaken for a user gesture or added as another undo snapshot.
 const programmaticMove = new WeakSet(), activeLayoutGesture = new WeakSet(), gestureEndTimers = new WeakMap();
 const layoutUndoStack = [];
-const overlayTargets = ["inputs", "relative", "fuel", "pit", "mgu", "radar", "standings"];
+const overlayTargets = ["inputs", "relative", "fuel", "pit", "mgu", "p2p", "radar", "standings"];
 
 // -----------------------------------------------------------------------------
 // Visual layout editor and profile management
 // -----------------------------------------------------------------------------
 
-function geometryWindow(target) { return target === "inputs" ? overlayWindow : target === "relative" ? relativeWindow : target === "fuel" ? fuelWindow : target === "pit" ? pitWindow : target === "mgu" ? mguWindow : target === "radar" ? radarWindow : standingsWindow; }
+function geometryWindow(target) { return target === "inputs" ? overlayWindow : target === "relative" ? relativeWindow : target === "fuel" ? fuelWindow : target === "pit" ? pitWindow : target === "mgu" ? mguWindow : target === "p2p" ? p2pWindow : target === "radar" ? radarWindow : standingsWindow; }
 function positionKey(target) { return target === "inputs" ? "position" : `${target}Position`; }
 function layoutSnapshot() { return Object.fromEntries(overlayTargets.map(target => [target, geometryWindow(target).getBounds()])); }
+// Undo stores complete layouts rather than individual coordinates, which guarantees
+// that snapping and proportional resizing can be reversed as one coherent action.
 function rememberLayout() { layoutUndoStack.push(layoutSnapshot()); if (layoutUndoStack.length > 40)
     layoutUndoStack.shift(); }
 function beginLayoutGesture(win) { if (!store.data.layoutEditMode || programmaticMove.has(win) || programmaticResize.has(win) || activeLayoutGesture.has(win))
@@ -421,9 +473,11 @@ function setScaleValue(target, value) { const key = overlayGeometry[target].sett
 function resizeForScale(target, value) { const win = geometryWindow(target); if (!win || win.isDestroyed())
     return; const [width, height] = geometryBase(target); programmaticResize.add(win); win.setSize(Math.round(width * value / 100), Math.round(height * value / 100), false); setTimeout(() => programmaticResize.delete(win), 80); }
 function currentProfile(name) {
+    // A profile captures geometry and visibility, not live telemetry or temporary edit state.
     return { name, createdAt: new Date().toISOString(), layout: layoutSnapshot(), enabled: Object.fromEntries(overlayTargets.map(target => [target, Boolean(store.data[enabledKeys[target]])])) };
 }
 function starterProfile() {
+    // Calculate positions from the active monitor instead of assuming a fixed resolution.
     const area = screen.getDisplayMatching(controlWindow.getBounds()).workArea, margin = 24, size = Object.fromEntries(overlayTargets.map(target => [target, geometryBase(target)]));
     const groupHeight = size.radar[1] + 12 + size.mgu[1] + 12 + size.inputs[1], groupTop = area.y + Math.max(margin, Math.round((area.height - groupHeight) / 2)), centerX = width => area.x + Math.round((area.width - width) / 2);
     return { name: "Centered race layout", builtin: true, layout: {
@@ -432,11 +486,13 @@ function starterProfile() {
             relative: { x: area.x + area.width - size.relative[0] - margin, y: area.y + area.height - size.relative[1] - margin, width: size.relative[0], height: size.relative[1] },
             radar: { x: centerX(size.radar[0]), y: groupTop, width: size.radar[0], height: size.radar[1] },
             mgu: { x: centerX(size.mgu[0]), y: groupTop + size.radar[1] + 12, width: size.mgu[0], height: size.mgu[1] },
+            p2p: { ...defaults.p2pPosition },
             inputs: { x: centerX(size.inputs[0]), y: groupTop + size.radar[1] + 12 + size.mgu[1] + 12, width: size.inputs[0], height: size.inputs[1] },
             pit: { ...defaults.pitPosition }
-        }, enabled: { inputs: true, relative: true, fuel: true, pit: false, mgu: true, radar: true, standings: true } };
+        }, enabled: { inputs: true, relative: true, fuel: true, pit: false, mgu: true, p2p: false, radar: true, standings: true } };
 }
 function applyProfile(id, profile) {
+    // Preserve the previous arrangement for Undo before changing every window.
     rememberLayout();
     const layout = Object.fromEntries(overlayTargets.map(target => [target, safeBounds(profile.layout[target] || store.data[positionKey(target)])]));
     applyLayout(layout);
@@ -452,6 +508,8 @@ function applyProfile(id, profile) {
     return store.data;
 }
 function attachScaleSync(target) {
+    // Native edge dragging changes the corresponding scale setting. Slider changes
+    // call resizeForScale(), providing two-way synchronisation.
     const win = geometryWindow(target), geometry = overlayGeometry[target];
     let lastPublished = 0;
     const syncBounds = bounds => {
@@ -486,8 +544,9 @@ function attachScaleSync(target) {
 // -----------------------------------------------------------------------------
 
 app.whenReady().then(() => {
+    // Electron APIs such as screen and BrowserWindow are valid only after readiness.
     store = new Store(app.getPath("userData"));
-    store.set({ layoutEditMode: false, editMode: false, relativeEditMode: false, fuelEditMode: false, pitEditMode: false, mguEditMode: false, radarEditMode: false, standingsEditMode: false });
+    store.set({ layoutEditMode: false, editMode: false, relativeEditMode: false, fuelEditMode: false, pitEditMode: false, mguEditMode: false, p2pEditMode: false, radarEditMode: false, standingsEditMode: false });
     ensureCustomCss();
     telemetry.setLogFile(path.join(app.getPath("userData"), "telemetry-diagnostic.log"));
     createControl();
@@ -496,11 +555,13 @@ app.whenReady().then(() => {
     createFuelOverlay();
     createPitOverlay();
     createMguOverlay();
+    createP2pOverlay();
     createRadarOverlay();
     createStandingsOverlay();
     for (const target of Object.keys(overlayGeometry))
         attachScaleSync(target);
     resizeForScale("relative", scaleValue("relative"));
+    // High-frequency vehicle data is routed only to overlays that consume it.
     telemetry.on("data", data => {
         if (overlayWindow && !overlayWindow.isDestroyed())
             overlayWindow.webContents.send("telemetry", data);
@@ -512,9 +573,12 @@ app.whenReady().then(() => {
             pitWindow.webContents.send("telemetry", data);
         if (mguWindow && !mguWindow.isDestroyed())
             mguWindow.webContents.send("telemetry", data);
+        if (p2pWindow && !p2pWindow.isDestroyed())
+            p2pWindow.webContents.send("telemetry", data);
         if (radarWindow && !radarWindow.isDestroyed())
             radarWindow.webContents.send("telemetry", data);
     });
+    // Participant frames are shared by Relative and Standings.
     telemetry.on("relative", data => {
         if (relativeWindow && !relativeWindow.isDestroyed())
             relativeWindow.webContents.send("relative", data);
@@ -543,6 +607,7 @@ ipcMain.handle("custom-css:open", async () => { const file = ensureCustomCss(); 
 ipcMain.handle("custom-css:reload", async () => { const css = readCustomCss(); await publishCustomCss(css); return css; });
 ipcMain.handle("custom-css:reset", async () => { fs.writeFileSync(ensureCustomCss(), DEFAULT_CUSTOM_CSS, "utf8"); await publishCustomCss(DEFAULT_CUSTOM_CSS); return DEFAULT_CUSTOM_CSS; });
 ipcMain.handle("settings:update", (_, patch) => {
+    // Compare scale values before and after merging so only changed windows resize.
     const oldDemo = store.data.demoMode;
     const oldRelativeRows = store.data.relative.rows;
     const oldScales = Object.fromEntries(Object.keys(overlayGeometry).map(target => [target, scaleValue(target)]));
@@ -559,6 +624,7 @@ ipcMain.handle("settings:update", (_, patch) => {
     fuelWindow?.setOpacity(store.data.fuel.opacity / 100);
     pitWindow?.setOpacity(store.data.pit.opacity / 100);
     mguWindow?.setOpacity(store.data.mgu.opacity / 100);
+    p2pWindow?.setOpacity(store.data.p2p.opacity / 100);
     radarWindow?.setOpacity(store.data.radar.opacity / 100);
     standingsWindow?.setOpacity(store.data.standings.opacity / 100);
     overlayWindow?.setIgnoreMouseEvents(store.data.clickThrough && !store.data.editMode, { forward: true });
@@ -566,6 +632,7 @@ ipcMain.handle("settings:update", (_, patch) => {
     fuelWindow?.setIgnoreMouseEvents(store.data.clickThrough && !store.data.fuelEditMode, { forward: true });
     pitWindow?.setIgnoreMouseEvents(store.data.clickThrough && !store.data.pitEditMode, { forward: true });
     mguWindow?.setIgnoreMouseEvents(store.data.clickThrough && !store.data.mguEditMode, { forward: true });
+    p2pWindow?.setIgnoreMouseEvents(store.data.clickThrough && !store.data.p2pEditMode, { forward: true });
     radarWindow?.setIgnoreMouseEvents(store.data.clickThrough && !store.data.radarEditMode, { forward: true });
     standingsWindow?.setIgnoreMouseEvents(store.data.clickThrough && !store.data.standingsEditMode, { forward: true });
     if (oldDemo !== store.data.demoMode)
@@ -593,11 +660,13 @@ ipcMain.handle("fuel:toggle", (_, value) => {
 });
 ipcMain.handle("pit:toggle", (_, value) => { store.set({ pitEnabled: value }); (value || store.data.layoutEditMode) ? pitWindow.showInactive() : pitWindow.hide(); publishSettings(); return store.data; });
 ipcMain.handle("mgu:toggle", (_, value) => { store.set({ mguEnabled: value }); (value || store.data.layoutEditMode) ? mguWindow.showInactive() : mguWindow.hide(); publishSettings(); return store.data; });
+ipcMain.handle("p2p:toggle", (_, value) => { store.set({ p2pEnabled: value }); (value || store.data.layoutEditMode) ? p2pWindow.showInactive() : p2pWindow.hide(); publishSettings(); return store.data; });
 ipcMain.handle("radar:toggle", (_, value) => { store.set({ radarEnabled: value }); (value || store.data.layoutEditMode) ? radarWindow.showInactive() : radarWindow.hide(); publishSettings(); return store.data; });
 ipcMain.handle("standings:toggle", (_, value) => { store.set({ standingsEnabled: value }); (value || store.data.layoutEditMode) ? standingsWindow.showInactive() : standingsWindow.hide(); publishSettings(); return store.data; });
-const editKeys = { inputs: "editMode", relative: "relativeEditMode", fuel: "fuelEditMode", pit: "pitEditMode", mgu: "mguEditMode", radar: "radarEditMode", standings: "standingsEditMode" };
-const enabledKeys = { inputs: "overlayEnabled", relative: "relativeEnabled", fuel: "fuelEnabled", pit: "pitEnabled", mgu: "mguEnabled", radar: "radarEnabled", standings: "standingsEnabled" };
+const editKeys = { inputs: "editMode", relative: "relativeEditMode", fuel: "fuelEditMode", pit: "pitEditMode", mgu: "mguEditMode", p2p: "p2pEditMode", radar: "radarEditMode", standings: "standingsEditMode" };
+const enabledKeys = { inputs: "overlayEnabled", relative: "relativeEnabled", fuel: "fuelEnabled", pit: "pitEnabled", mgu: "mguEnabled", p2p: "p2pEnabled", radar: "radarEnabled", standings: "standingsEnabled" };
 ipcMain.handle("layout:edit", (_, value) => {
+    // Global layout mode exposes every overlay, including normally disabled ones.
     value = Boolean(value);
     const patch = { layoutEditMode: value };
     for (const target of overlayTargets)
@@ -635,6 +704,7 @@ ipcMain.handle("layout:edit", (_, value) => {
     return store.data;
 });
 ipcMain.handle("layout:lock", (_, target, value) => {
+    // Validate target names before selecting a BrowserWindow from internal maps.
     if (!overlayTargets.includes(target))
         return store.data;
     store.set({ lockedOverlays: { [target]: Boolean(value) } });
@@ -656,6 +726,7 @@ ipcMain.handle("layout:undo", () => { const current = layoutSnapshot(); while (l
     }
 } return store.data; });
 ipcMain.handle("layout:reset", (_, target) => {
+    // Reset means the shipped position and 100% scale for the selected overlay only.
     if (!overlayTargets.includes(target))
         return store.data;
     rememberLayout();
@@ -671,6 +742,7 @@ ipcMain.handle("layout:reset", (_, target) => {
 });
 ipcMain.handle("profiles:list", () => ({ activeProfile: store.data.activeProfile, profiles: [{ id: "starter", ...starterProfile() }, ...Object.entries(store.data.profiles).map(([id, profile]) => ({ id, ...profile, builtin: false }))] }));
 ipcMain.handle("profiles:save", (_, rawName) => {
+    // Limit profile names before writing them into the local settings file.
     const name = String(rawName || "").trim().slice(0, 48);
     if (!name)
         return { error: "Enter a profile name." };
@@ -684,8 +756,9 @@ ipcMain.handle("profiles:apply", (_, id) => { const profile = id === "starter" ?
 ipcMain.handle("profiles:delete", (_, id) => { if (id === "starter")
     return { error: "The included profile cannot be deleted." }; const profiles = { ...store.data.profiles }; delete profiles[id]; store.set({ profiles, activeProfile: store.data.activeProfile === id ? null : store.data.activeProfile }); publishSettings(); return true; });
 ipcMain.handle("overlay:edit", (_, value, target) => {
-    const win = target === "relative" ? relativeWindow : target === "fuel" ? fuelWindow : target === "pit" ? pitWindow : target === "mgu" ? mguWindow : target === "radar" ? radarWindow : target === "standings" ? standingsWindow : overlayWindow;
-    const key = target === "relative" ? "relativeEditMode" : target === "fuel" ? "fuelEditMode" : target === "pit" ? "pitEditMode" : target === "mgu" ? "mguEditMode" : target === "radar" ? "radarEditMode" : target === "standings" ? "standingsEditMode" : "editMode";
+    // Individual edit mode focuses one overlay while keeping the control panel available.
+    const win = geometryWindow(target || "inputs");
+    const key = editKeys[target || "inputs"];
     store.set({ [key]: value });
     win.setFocusable(value);
     win.setMovable(true);
@@ -719,6 +792,7 @@ app.on("window-all-closed", () => app.quit());
 // Stop telemetry first so the utility process cannot publish events while the
 // overlay windows are being destroyed.
 app.on("before-quit", () => {
+    // Stop telemetry before destroying renderers so no late frame targets a dead page.
     isQuitting = true;
     telemetry.stop();
     if (overlayWindow && !overlayWindow.isDestroyed())
@@ -731,6 +805,8 @@ app.on("before-quit", () => {
         pitWindow.destroy();
     if (mguWindow && !mguWindow.isDestroyed())
         mguWindow.destroy();
+    if (p2pWindow && !p2pWindow.isDestroyed())
+        p2pWindow.destroy();
     if (radarWindow && !radarWindow.isDestroyed())
         radarWindow.destroy();
     if (standingsWindow && !standingsWindow.isDestroyed())

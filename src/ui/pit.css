@@ -1,5 +1,7 @@
 /*
- * Defines the pit component of Apex Inputs.
+ * Pit Helper presentation.
+ * Vertical meters are designed for peripheral viewing while approaching the box.
+ * Warning classes change colour without reconstructing the bar markup.
  */
 
 :root {

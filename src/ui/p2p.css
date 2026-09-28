@@ -1,0 +1,123 @@
+/*
+ * Push-to-Pass overlay presentation.
+ * The window is transparent; only the panel receives a visible background.
+ */
+:root {
+  --ready:#61e77b;
+  --active:#f3ff4b;
+  --cooldown:#ff9f43;
+  --bg:#15191d;
+  --scale:1;
+  --font-scale:1
+}
+
+/* Include padding and borders inside requested element dimensions. */
+* {
+  box-sizing:border-box
+}
+
+/* Preserve transparency around the overlay so the simulator stays visible. */
+html,
+body {
+  margin:0;
+  width:100%;
+  height:100%;
+  overflow:hidden;
+  background:transparent;
+  color:#f7f8fa;
+  font-family:Inter,Segoe UI,sans-serif
+}
+
+body {
+  padding:6px
+}
+
+/* Start hidden to prevent a flash before car capability is known. */
+main {
+  visibility:hidden;
+  width:100%;
+  height:100%;
+  padding:9px 12px;
+  background:color-mix(in srgb,var(--bg) 96%,transparent);
+  border:2px solid #ffffff42;
+  border-radius:7px;
+  transform:scale(var(--scale));
+  transform-origin:top left;
+  filter:drop-shadow(0 4px 8px #0008)
+}
+
+/* Separate the overlay name from its current operational state. */
+header {
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  border-bottom:1px solid #ffffff22;
+  padding-bottom:6px;
+  font-size:calc(11px * var(--font-scale));
+  font-weight:800;
+  letter-spacing:1px
+}
+
+header b {
+  color:var(--ready)
+}
+
+/* Active use is deliberately bright enough for peripheral vision. */
+main.active {
+  border-color:var(--active);
+  box-shadow:inset 0 0 12px color-mix(in srgb,var(--active) 25%,transparent)
+}
+
+main.active header b {
+  color:var(--active)
+}
+
+main.cooldown header b {
+  color:var(--cooldown)
+}
+
+/* Values divide the available horizontal space equally. */
+section {
+  display:flex;
+  gap:14px;
+  padding-top:8px
+}
+
+.value {
+  flex:1;
+  min-width:0
+}
+
+.value small {
+  display:block;
+  color:#8d96a0;
+  font-size:calc(7px * var(--font-scale));
+  text-transform:uppercase;
+  letter-spacing:.7px
+}
+
+.value strong {
+  font:800 calc(19px * var(--font-scale))/1.1 Consolas,monospace
+}
+
+/* Electron treats this element as draggable only during edit mode. */
+.editing {
+  -webkit-app-region:drag;
+  cursor:move;
+  outline:1px dashed #fff8
+}
+
+/* The corner hint communicates that native edge resizing is available. */
+#resizeHint {
+  display:none;
+  position:fixed;
+  right:1px;
+  bottom:-2px;
+  color:#fff;
+  font-size:20px;
+  pointer-events:none
+}
+
+.editing~#resizeHint {
+  display:block
+}

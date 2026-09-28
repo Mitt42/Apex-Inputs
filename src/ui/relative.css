@@ -1,5 +1,7 @@
 /*
- * Defines the relative component of Apex Inputs.
+ * Relative overlay presentation.
+ * Fixed grid columns keep car number, driver identity and gap aligned while rows
+ * update rapidly. Scale and font size remain independent user preferences.
  */
 
 :root {

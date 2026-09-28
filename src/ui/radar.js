@@ -1,6 +1,8 @@
 /**
- * Renders contextual side-by-side warnings and keeps multiple cars on the same
- * side visually separated.
+ * Radar overlay renderer.
+ *
+ * The SDK provides a compact left/right state and telemetry.js supplies nearby
+ * longitudinal offsets. This page converts them into stable warning segments.
  */
 
 let settings;
@@ -13,6 +15,7 @@ function segmentPositions(count, options) {
   // Two cars use fixed separated positions so their segments never overlap.
   if (count === 2) return [28, 72];
 
+  // Convert metres ahead or behind into a percentage of the vertical rail.
   const offsets = (telemetry.radarOffsets || []).slice(0, count);
   while (offsets.length < count) offsets.push(0);
 
@@ -40,6 +43,7 @@ function render() {
 
   const options = settings.radar;
   const rootStyle = document.documentElement.style;
+  // Cap style belongs to the grey background rail, not the orange segment.
   const backgroundCap = options.capStyle === 'round'
     ? `${options.backgroundWidth / 2}px`
     : options.capStyle === 'square' ? '2px' : '0';

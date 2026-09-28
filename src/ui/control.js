@@ -1,7 +1,19 @@
 /**
- * Controls the configuration interface, synchronizes form fields, manages the visual editor, and handles layout profiles.
+ * Control-panel renderer and form coordinator.
+ *
+ * This page does not own persistent state. main.js owns the Store and broadcasts
+ * the canonical settings object after every change. Controls submit small patches
+ * through window.apex, then synchronisation functions update the form from the
+ * returned/broadcast state. This prevents different controls from maintaining
+ * contradictory local copies.
+ *
+ * Much of the overlay configuration interface is generated here rather than being
+ * duplicated in control.html. Every `data-*` attribute identifies the destination
+ * settings group, making similar checkbox, range, number and colour controls share
+ * the same event-binding pattern.
  */
 const moduleMeta = { throttle: ["\u2191", "Throttle", "Throttle percentage"], brake: ["\u25A0", "Brake", "Applied brake pressure"], clutch: ["\u25D0", "Clutch", "Clutch percentage"], gear: ["3", "Gear", "Current car gear"], steering: ["\u25CC", "Steering", "Steering wheel angle"] };
+// `selectedOverlay` controls which appearance card and edit target are active.
 let settings, selectedOverlay = null, inputsOpen = false;
 const $ = id => document.getElementById(id);
 function selectOverlay(name) { selectedOverlay = name; $("inputsAppearance").classList.toggle("is-hidden", name !== "inputs"); $("relativeAppearance").classList.toggle("is-hidden", name !== "relative"); $("relativeSelect").classList.toggle("selected", name === "relative"); $("inputsDropdown").classList.toggle("selected", name === "inputs"); updateEditButton(); }
@@ -23,6 +35,7 @@ function render(s) { settings = s; document.documentElement.style.setProperty("-
     el.checked = value;
 else
     el.value = value; }); $("relativeScaleOut").value = `${s.relative.scale}%`; $("relativeOpacityOut").value = `${s.relative.opacity}%`; updateEditButton(); }
+// Initial state is requested once; subsequent changes arrive as pushed events.
 window.apex.getSettings().then(render);
 window.apex.onSettings(render);
 $("close").onclick = window.apex.close;
@@ -54,6 +67,7 @@ document.querySelectorAll("[data-relative]").forEach(el => el.oninput = e => { c
     $("relativeScaleOut").value = `${value}%`; if (key === "opacity")
     $("relativeOpacityOut").value = `${value}%`; window.apex.updateSettings({ relative: { [key]: value } }); });
 window.apex.onTelemetryStatus(status => { const labels = { demo: "Demo mode", waiting: "Waiting for iRacing", connecting: "Syncing telemetry", connected: status.label.replace("iRacing ligado", "iRacing connected"), error: "SDK error" }; const colors = { connected: "#55e6a5", connecting: "#55c8ff", waiting: "#ffb23e", error: "#ff4d5d", demo: "#8c94a0" }; $("source").textContent = labels[status.state] || status.label; $("statusDot").style.background = colors[status.state] || "#8c94a0"; $("statusDot").style.boxShadow = `0 0 10px ${colors[status.state] || "#8c94a0"}`; });
+// Additional controls are inserted next to their logical appearance sections.
 const relativeFontLabel = document.createElement("label");
 relativeFontLabel.innerHTML = "Text size <output id=\"relativeFontSizeOut\">100%</output><input data-relative=\"fontSize\" id=\"relativeFontSize\" type=\"range\" min=\"70\" max=\"160\">";
 $("relativeAppearance").insertBefore(relativeFontLabel, $("relativeAppearance").querySelector(".colors"));
@@ -71,16 +85,17 @@ $("relativeFontSize").oninput = e => { $("relativeFontSizeOut").value = `${e.tar
 document.querySelectorAll("[data-theme]").forEach(el => el.oninput = e => { const key = e.target.dataset.theme, value = e.target.type === "range" ? Number(e.target.value) : e.target.value; if (key === "fontScale")
     $("appFontScaleOut").value = `${value}%`; window.apex.updateSettings({ appTheme: { [key]: value } }); });
 $("resetTheme").onclick = () => window.apex.updateSettings({ appTheme: { accent: "#f3ff4b", background: "#0a0c0f", panel: "#11151a", text: "#f3f5f6", fontScale: 100 } });
+// The master checkbox becomes indeterminate when only some overlays are enabled.
 function syncAllOverlays(s) {
     const all = $("allOverlaysEnabled");
-    all.checked = s.overlayEnabled && s.relativeEnabled && s.fuelEnabled && s.pitEnabled && s.mguEnabled && s.radarEnabled && s.standingsEnabled;
-    all.indeterminate = !all.checked && (s.overlayEnabled || s.relativeEnabled || s.fuelEnabled || s.pitEnabled || s.mguEnabled || s.radarEnabled || s.standingsEnabled);
+    all.checked = s.overlayEnabled && s.relativeEnabled && s.fuelEnabled && s.pitEnabled && s.mguEnabled && s.p2pEnabled && s.radarEnabled && s.standingsEnabled;
+    all.indeterminate = !all.checked && (s.overlayEnabled || s.relativeEnabled || s.fuelEnabled || s.pitEnabled || s.mguEnabled || s.p2pEnabled || s.radarEnabled || s.standingsEnabled);
 }
 window.apex.getSettings().then(syncAllOverlays);
 window.apex.onSettings(syncAllOverlays);
 $("allOverlaysEnabled").onchange = async (e) => {
     const enabled = e.target.checked;
-    await Promise.all([window.apex.toggleOverlay(enabled), window.apex.toggleRelative(enabled), window.apex.toggleFuel(enabled), window.apex.togglePit(enabled), window.apex.toggleMgu(enabled), window.apex.toggleRadar(enabled), window.apex.toggleStandings(enabled)]);
+    await Promise.all([window.apex.toggleOverlay(enabled), window.apex.toggleRelative(enabled), window.apex.toggleFuel(enabled), window.apex.togglePit(enabled), window.apex.toggleMgu(enabled), window.apex.toggleP2p(enabled), window.apex.toggleRadar(enabled), window.apex.toggleStandings(enabled)]);
 };
 $("inputsEnabled").onclick = e => e.stopPropagation();
 $("relativeEnabled").onclick = e => e.stopPropagation();
@@ -90,6 +105,7 @@ $("relativeSelect").onclick = e => {
     e.preventDefault();
     selectOverlay("relative");
 };
+// Fuel Calculator menu item and dynamically generated appearance form.
 const fuelSelect = document.createElement("label");
 fuelSelect.id = "fuelSelect";
 fuelSelect.className = "relative-select";
@@ -121,6 +137,7 @@ else
     el.value = value; }); $("fuelScaleOut").value = `${s.fuel.scale}%`; $("fuelFontSizeOut").value = `${s.fuel.fontSize}%`; $("fuelOpacityOut").value = `${s.fuel.opacity}%`; $("fuelReserveOut").value = Number(s.fuel.reserveLaps).toFixed(1); }
 window.apex.getSettings().then(syncFuel);
 window.apex.onSettings(syncFuel);
+// Pit Helper configuration follows the same select/synchronise/update pattern.
 const pitSelect = document.createElement("label");
 pitSelect.id = "pitSelect";
 pitSelect.className = "relative-select";
@@ -159,6 +176,7 @@ $("pitActivationDistance").oninput = e => window.apex.updateSettings({ pit: { ac
 function syncPitDistance(s) { $("pitActivationDistance").value = s.pit.activationDistance; }
 window.apex.getSettings().then(syncPitDistance);
 window.apex.onSettings(syncPitDistance);
+// MGU controls are meaningful only for hybrid cars, but remain editable in demo mode.
 const mguSelect = document.createElement("label");
 mguSelect.id = "mguSelect";
 mguSelect.className = "relative-select";
@@ -190,6 +208,7 @@ else
     el.value = value; }); $("mguScaleOut").value = `${s.mgu.scale}%`; $("mguFontSizeOut").value = `${s.mgu.fontSize}%`; $("mguOpacityOut").value = `${s.mgu.opacity}%`; }
 window.apex.getSettings().then(syncMgu);
 window.apex.onSettings(syncMgu);
+// Radar appearance includes rail geometry, detection range and transition options.
 const radarSelect = document.createElement("label");
 radarSelect.id = "radarSelect";
 radarSelect.className = "relative-select";
@@ -228,6 +247,7 @@ radarCurvatureOut.className = "is-hidden";
 $("radarAppearance").appendChild(radarCurvatureOut);
 const radarCapLabel = document.querySelector("[data-radar=\"capStyle\"]").closest("label");
 radarCapLabel.firstChild.textContent = "Background cap style";
+// Standings exposes race-order, multiclass, identity and timing presentation options.
 const standingsSelect = document.createElement("label");
 standingsSelect.id = "standingsSelect";
 standingsSelect.className = "relative-select";
@@ -259,6 +279,37 @@ else
     $(`standings${key[0].toUpperCase() + key.slice(1)}Out`).value = `${s.standings[key]}%`; }
 window.apex.getSettings().then(syncStandings);
 window.apex.onSettings(syncStandings);
+// Push-to-Pass can be positioned even though it auto-hides on unsupported cars.
+const p2pSelect = document.createElement("label");
+p2pSelect.id = "p2pSelect";
+p2pSelect.className = "relative-select";
+p2pSelect.innerHTML = "<span class=\"dropdown-icon\">P2P</span><span><strong>Push to Pass</strong><small>Uses, activation time and cooldown</small></span><input id=\"p2pEnabled\" type=\"checkbox\">";
+$("mguSelect").after(p2pSelect);
+document.querySelector(".panel-title>span").textContent = "8 AVAILABLE";
+const p2pAppearance = document.createElement("article");
+p2pAppearance.id = "p2pAppearance";
+p2pAppearance.className = "panel appearance is-hidden";
+p2pAppearance.innerHTML = "<p class=\"eyebrow\">APPEARANCE · PUSH TO PASS</p><h3>Push to Pass</h3><div class=\"check-options\"><label><input data-p2p=\"showRemaining\" type=\"checkbox\"> Show uses remaining</label><label><input data-p2p=\"showUsageTime\" type=\"checkbox\"> Show current use time</label><label><input data-p2p=\"showCooldown\" type=\"checkbox\"> Show cooldown</label></div><div class=\"option-grid\"><label>Maximum use time<input data-p2p=\"usageLimit\" type=\"number\" min=\"1\" max=\"60\" step=\"1\"><small>seconds</small></label><label>Cooldown duration<input data-p2p=\"cooldownDuration\" type=\"number\" min=\"1\" max=\"120\" step=\"1\"><small>seconds</small></label></div><label>Scale <output id=\"p2pScaleOut\">100%</output><input data-p2p=\"scale\" type=\"range\" min=\"70\" max=\"140\"></label><label>Text size <output id=\"p2pFontSizeOut\">100%</output><input data-p2p=\"fontSize\" type=\"range\" min=\"70\" max=\"160\"></label><label>Opacity <output id=\"p2pOpacityOut\">96%</output><input data-p2p=\"opacity\" type=\"range\" min=\"35\" max=\"100\"></label><div class=\"colors\"><label>Ready<input data-p2p=\"readyColor\" type=\"color\"></label><label>Active<input data-p2p=\"activeColor\" type=\"color\"></label><label>Cooldown<input data-p2p=\"cooldownColor\" type=\"color\"></label><label>Background<input data-p2p=\"background\" type=\"color\"></label></div>";
+$("mguAppearance").after(p2pAppearance);
+selectOverlay = function (name) { selectedOverlay = name; for (const item of ["inputs", "relative", "fuel", "pit", "mgu", "p2p", "radar", "standings"])
+    $(`${item}Appearance`).classList.toggle("is-hidden", name !== item); for (const item of ["relative", "fuel", "pit", "mgu", "p2p", "radar", "standings"])
+    $(`${item}Select`).classList.toggle("selected", name === item); $("inputsDropdown").classList.toggle("selected", name === "inputs"); updateEditButton(); };
+updateEditButton = function () { if (!settings)
+    return; const map = { relative: "relativeEditMode", fuel: "fuelEditMode", pit: "pitEditMode", mgu: "mguEditMode", p2p: "p2pEditMode", radar: "radarEditMode", standings: "standingsEditMode" }, key = map[selectedOverlay] || "editMode", editing = settings[key]; $("editMode").classList.toggle("active", editing); $("editMode").textContent = editing ? "Finish editing" : selectedOverlay ? `Move and resize ${selectedOverlay}` : "Select an overlay to edit"; $("editMode").disabled = !selectedOverlay; };
+$("editMode").onclick = () => { const map = { relative: "relativeEditMode", fuel: "fuelEditMode", pit: "pitEditMode", mgu: "mguEditMode", p2p: "p2pEditMode", radar: "radarEditMode", standings: "standingsEditMode" }, key = map[selectedOverlay] || "editMode"; window.apex.setEditMode(!settings[key], selectedOverlay); };
+$("p2pEnabled").onclick = e => e.stopPropagation();
+$("p2pEnabled").onchange = e => window.apex.toggleP2p(e.target.checked);
+$("p2pSelect").onclick = e => { if (e.target.id === "p2pEnabled")
+    return; e.preventDefault(); selectOverlay("p2p"); };
+document.querySelectorAll("[data-p2p]").forEach(el => el.oninput = e => { const key = e.target.dataset.p2p, value = e.target.type === "checkbox" ? e.target.checked : e.target.type === "range" || e.target.type === "number" ? Number(e.target.value) : e.target.value; if (["scale", "fontSize", "opacity"].includes(key))
+    $(`p2p${key[0].toUpperCase() + key.slice(1)}Out`).value = `${value}%`; window.apex.updateSettings({ p2p: { [key]: value } }); });
+function syncP2p(s) { $("p2pEnabled").checked = s.p2pEnabled; document.querySelectorAll("[data-p2p]").forEach(el => { const value = s.p2p[el.dataset.p2p]; if (el.type === "checkbox")
+    el.checked = value;
+else
+    el.value = value; }); for (const key of ["scale", "fontSize", "opacity"])
+    $(`p2p${key[0].toUpperCase() + key.slice(1)}Out`).value = `${s.p2p[key]}%`; }
+window.apex.getSettings().then(syncP2p);
+window.apex.onSettings(syncP2p);
 $("minimize").textContent = "\u2212";
 $("minimize").title = "Minimize";
 $("close").textContent = "\u00D7";
@@ -269,6 +320,7 @@ maximizeButton.textContent = "\u25A1";
 maximizeButton.title = "Maximize or restore";
 $("close").before(maximizeButton);
 maximizeButton.onclick = window.apex.maximize;
+// Advanced CSS is edited as text and applied to every open renderer by main.js.
 const customCard = document.createElement("div");
 customCard.className = "settings-card custom-code";
 customCard.innerHTML = "<p class=\"eyebrow\">ADVANCED</p><h3>Custom CSS</h3><p>Override the appearance of the app and overlays without changing internal files.</p><textarea id=\"customCssEditor\" spellcheck=\"false\" placeholder=\"Write CSS here...\"></textarea><div class=\"custom-actions\"><button id=\"saveCustomCss\" class=\"outline\">Apply and save</button><button id=\"openCustomCss\" class=\"outline\">Open CSS file</button><button id=\"reloadCustomCss\" class=\"outline\">Reload file</button><button id=\"resetCustomCss\" class=\"outline danger\">Reset</button></div><small id=\"customCssStatus\">Changes are stored in custom.css beside your settings.</small>";
@@ -279,11 +331,13 @@ $("saveCustomCss").onclick = async () => { const result = await window.apex.save
 $("openCustomCss").onclick = async () => { const result = await window.apex.openCustomCss(); $("customCssStatus").textContent = result.error || `Opened ${result.file}`; };
 $("reloadCustomCss").onclick = async () => { const css = await window.apex.reloadCustomCss(); $("customCssEditor").value = css; $("customCssStatus").textContent = "File reloaded and applied."; };
 $("resetCustomCss").onclick = async () => { const css = await window.apex.resetCustomCss(); $("customCssEditor").value = css; $("customCssStatus").textContent = "Custom CSS reset."; };
+// Central layout editing coordinates all windows while preserving per-overlay locks.
 const layoutEditor = document.createElement("section");
 layoutEditor.className = "layout-editor";
 layoutEditor.innerHTML = "<div class=\"layout-editor-title\"><div><strong>Visual layout editor</strong><small>Arrange every overlay on one screen</small></div><span class=\"layout-status\">OFF</span></div><button id=\"layoutEdit\" class=\"outline\">Edit all overlays</button><div class=\"layout-actions\"><button id=\"layoutUndo\" class=\"outline\" title=\"Undo the last complete move or resize\">Undo</button><button id=\"layoutReset\" class=\"outline\" title=\"Restore the selected overlay position and size\">Reset selected</button></div><label class=\"layout-lock\"><span><strong>Lock selected overlay</strong><small id=\"layoutSelection\">Select an overlay from the list</small></span><input id=\"layoutLock\" type=\"checkbox\"></label><p class=\"edit-help\">Overlays snap to screen edges, the centre and nearby overlays. Locked overlays stay visible but cannot be moved.</p>";
 $("editMode").closest(".panel").appendChild(layoutEditor);
 function syncLayoutEditor(s) {
+    // Selection and lock state are derived from canonical settings after every action.
     const active = Boolean(s.layoutEditMode), hasSelection = Boolean(selectedOverlay), locked = hasSelection && Boolean(s.lockedOverlays?.[selectedOverlay]);
     $("layoutEdit").classList.toggle("active", active);
     $("layoutEdit").textContent = active ? "Finish layout editing" : "Edit all overlays";
@@ -306,6 +360,7 @@ $("layoutReset").onclick = () => { if (selectedOverlay)
 $("layoutLock").onclick = e => e.stopPropagation();
 $("layoutLock").onchange = e => { if (selectedOverlay)
     window.apex.setOverlayLocked(selectedOverlay, e.target.checked); };
+// The formerly reserved navigation item becomes the saved layout Profiles page.
 const profilesNav = document.querySelector("nav button[disabled]");
 profilesNav.id = "profilesNav";
 profilesNav.disabled = false;
@@ -320,6 +375,7 @@ showPage = function (page) { showPageBeforeProfiles(page); $("profilesPage").cla
 $("profilesNav").onclick = () => { showPage("profiles"); renderProfiles(); };
 function escapeProfileName(value) { return String(value).replace(/[&<>'"]/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", "\"": "&quot;" }[char])); }
 async function renderProfiles() {
+    // Escape user-provided names before building HTML to prevent markup injection.
     const data = await window.apex.getProfiles();
     $("profileList").innerHTML = data.profiles.map(profile => `<article class="settings-card profile-card ${data.activeProfile === profile.id ? "selected" : ""}" data-profile="${profile.id}"><div class="profile-copy"><div><span class="profile-badge">${profile.builtin ? "INCLUDED" : "CUSTOM"}</span><h3>${escapeProfileName(profile.name)}</h3></div>${data.activeProfile === profile.id ? "<strong class=\"profile-active\">ACTIVE</strong>" : ""}</div><p>${profile.builtin ? "Responsive race layout: central Inputs, MGU and Radar; Standings and Fuel left; Relative right." : "Saved positions, sizes and enabled overlays."}</p><div class="profile-actions"><button class="outline" data-profile-action="apply">Apply profile</button>${profile.builtin ? "" : "<button class=\"outline danger\" data-profile-action=\"delete\">Delete</button>"}</div></article>`).join("");
 }

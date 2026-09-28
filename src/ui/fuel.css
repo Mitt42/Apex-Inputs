@@ -1,5 +1,7 @@
 /*
- * Defines the fuel component of Apex Inputs.
+ * Fuel Calculator presentation.
+ * The calculation grid aligns four strategies into consistent numeric columns.
+ * Colours distinguish strategy sources without changing calculation semantics.
  */
 
 :root {

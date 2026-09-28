@@ -1,5 +1,7 @@
 /*
- * Defines the radar component of Apex Inputs.
+ * Radar overlay presentation.
+ * Grey rails describe the detection area; orange segments represent nearby cars.
+ * Geometry is controlled through variables updated by radar.js.
  */
 
 :root {

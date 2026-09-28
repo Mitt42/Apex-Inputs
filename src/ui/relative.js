@@ -1,5 +1,8 @@
 /**
- * Renders nearby drivers, gaps, session information, ratings, and multiclass presentation options.
+ * Relative overlay renderer.
+ *
+ * telemetry.js supplies an ordered list of nearby drivers. This renderer focuses
+ * on names, class colours, badges, temperatures, gaps and user-selected formatting.
  */
 let settings;
 let data;
@@ -11,6 +14,7 @@ const editBorder = document.createElement("style");
 editBorder.textContent = "body:has(.relative.editing){outline:2px solid var(--accent);outline-offset:-2px}header{height:34px;padding:0 10px}header>strong{font-size:11px}#sessionInfo{gap:12px}.car-row{height:28px;grid-template-columns:24px 35px 1fr 55px;padding:0 6px;font-size:9px}.number{min-width:26px;height:17px;padding:0 4px}.driver small{display:none}.relative-footer{padding:6px 9px;font-size:8px}";
 document.head.appendChild(editBorder);
 function formatName(name = "", format, nameCase) {
+    // Splitting defensively keeps empty and single-word driver names valid.
     const parts = name.trim().split(/\s+/), first = parts[0] || "", last = parts.at(-1) || "";
     let result = name;
     if (format === "initial-last")
@@ -42,6 +46,7 @@ function manufacturer(car = "") {
     return [["Porsche", "POR"], ["BMW", "BMW"], ["Ferrari", "FER"], ["Mercedes", "AMG"], ["Audi", "AUD"], ["McLaren", "MCL"], ["Toyota", "TOY"], ["Chevrolet", "CHE"]].find(([name]) => car.toLowerCase().includes(name.toLowerCase()))?.[1] || "CAR";
 }
 function clearRelative() {
+    // Remove stale demo content while waiting for the first real participant frame.
     $("sessionInfo").innerHTML = "";
     $("cars").innerHTML = "";
     const footer = $("relativeFooter");
@@ -51,6 +56,7 @@ function clearRelative() {
 function render() {
     if (!settings)
         return;
+    // CSS variables update appearance without duplicating style rules per row.
     const r = settings.relative, root = document.documentElement.style;
     root.setProperty("--accent", r.accent);
     root.setProperty("--bg", r.background);

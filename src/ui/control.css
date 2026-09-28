@@ -1,5 +1,8 @@
 /*
- * Defines the control component of Apex Inputs.
+ * Control panel presentation.
+ * Layout uses cards and responsive grids so the frameless Electron window remains
+ * usable at its minimum size and when maximized. Theme variables are written by
+ * control.js and intentionally cascade through every settings component.
  */
 
 .colors {

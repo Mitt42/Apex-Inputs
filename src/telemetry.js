@@ -1,11 +1,24 @@
 /**
- * Reads iRacing shared-memory telemetry, normalizes values, calculates derived data, and generates demonstration frames.
+ * iRacing data acquisition and normalisation service.
+ *
+ * iRacing publishes live values through local Windows shared memory. No Internet
+ * connection or external server is involved in this pipeline. `irsdk-node` reads
+ * the shared-memory pages, after which this class converts native typed buffers
+ * into plain JavaScript numbers and arrays suitable for process IPC.
+ *
+ * Two event streams are produced:
+ * - `data`: vehicle inputs and overlay calculations, normally read at 60 Hz.
+ * - `relative`: the participant model used by Relative and Standings.
+ *
+ * Demonstration mode follows the same output schema as live mode. Renderer pages
+ * therefore do not need separate code paths for simulated and real telemetry.
  */
 const { EventEmitter } = require("node:events");
 const fs = require("node:fs");
-const EMPTY_FRAME = Object.freeze({ connected: false, demo: false, throttle: 0, brake: 0, clutch: 0, steering: 0, gear: 0, abs: false, fuelLevel: 0, fuelPerLap: 0, lapsRemaining: 0 });
+const EMPTY_FRAME = Object.freeze({ connected: false, demo: false, throttle: 0, brake: 0, clutch: 0, steering: 0, gear: 0, abs: false, tcActive: false, tcAvailable: false, p2pAvailable: false, fuelLevel: 0, fuelPerLap: 0, lapsRemaining: 0 });
 const EMPTY_RELATIVE_FRAME = Object.freeze({ demo: false, cars: [] });
 class Telemetry extends EventEmitter {
+    /** Initialise timers, SDK references, diagnostic state and derived-value memory. */
     constructor() {
         super();
         this.dataTimer = null;
@@ -25,12 +38,19 @@ class Telemetry extends EventEmitter {
         this.session = null;
         this.frameErrorCount = 0;
         this.firstFramePending = false;
+        this.p2pStartedAt = 0;
+        this.p2pLastEndedAt = 0;
+        this.p2pWasActive = false;
+        this.p2pCapabilityCarKey = null;
+        this.p2pCapabilityConfirmed = false;
     }
     setLogFile(file) {
+        // The worker supplies a local path; logs contain diagnostics, not telemetry uploads.
         this.logFile = file;
         this.log("startup", { platform: process.platform, arch: process.arch, versions: process.versions });
     }
     log(event, data = {}) {
+        // Newline-delimited JSON makes each event independently readable and searchable.
         if (!this.logFile)
             return;
         try {
@@ -39,9 +59,11 @@ class Telemetry extends EventEmitter {
         catch { }
     }
     async start(demo = true) {
+        // Always release the previous mode before starting another set of timers.
         this.stop();
         this.demo = demo;
         if (demo) {
+            // Demo frames run at 30 Hz, which is visually smooth without unnecessary work.
             this.setStatus("demo", "Modo demonstra\u00E7\u00E3o");
             this.demoTimer = setInterval(() => {
                 this.emit("data", this.demoFrame());
@@ -56,12 +78,15 @@ class Telemetry extends EventEmitter {
         // displayed after iRacing supplies a valid participant frame.
         this.emit("relative", EMPTY_RELATIVE_FRAME);
         await this.tryConnect();
+        // iRacing may start after Apex Inputs, so retry without requiring an app restart.
         this.retryTimer = setInterval(() => {
             if (!this.sdk && !this.connecting)
                 void this.tryConnect();
         }, 2000);
     }
     loadSdkLibrary() {
+        // Lazy loading lets demo mode operate on computers where the optional native
+        // dependency is unavailable or the user is not running Windows.
         if (this.native)
             return this.native;
         // Use the library's supported wrapper instead of invoking the native
@@ -74,6 +99,8 @@ class Telemetry extends EventEmitter {
     // Convert the SDK's typed buffers into plain arrays before sending data to
     // Electron renderers. Partial trailing values are ignored safely.
     decodeVariable(variable) {
+        // varType values come from the iRacing SDK. Correct typed-array selection is
+        // essential: interpreting four-byte floats as bytes would corrupt every value.
         if (!variable || variable.value == null)
             return null;
         const raw = variable.value;
@@ -105,6 +132,7 @@ class Telemetry extends EventEmitter {
                 const { createRequire } = require("node:module");
                 yaml = createRequire(require.resolve("irsdk-node"))("js-yaml");
             }
+            // Session data is YAML containing track, driver, car and session metadata.
             const sessionData = this.sdk.getSessionData() || {};
             this.session = typeof sessionData === "string" ? yaml.load(sessionData) || {} : sessionData;
             this.sessionVersion = version;
@@ -136,10 +164,13 @@ class Telemetry extends EventEmitter {
         const byIdx = new Map(drivers.map(driver => [driver.CarIdx, driver]));
         const playerEst = estTimes[player] || 0;
         const playerBest = bestLaps[player] > 0 ? bestLaps[player] : 90;
+        // Build one renderer-safe record for each active participant index.
         const cars = positions.map((position, carIdx) => {
             if (!position || distances[carIdx] == null || distances[carIdx] < 0)
                 return null;
             const driver = byIdx.get(carIdx) || {};
+            // Estimated lap times wrap at start/finish. Correcting half-lap jumps keeps
+            // nearby cars ordered around the player instead of the timing line.
             let gap = (estTimes[carIdx] || 0) - playerEst;
             if (gap > playerBest / 2)
                 gap -= playerBest;
@@ -167,6 +198,7 @@ class Telemetry extends EventEmitter {
                 pitTime: 0
             };
         }).filter(Boolean).sort((a, b) => a.gap - b.gap);
+        // iRating gain is an estimate for presentation, not an official result value.
         const ratedCars = cars.filter(car => car.irating > 0);
         for (const car of ratedCars) {
             const expected = ratedCars.length > 1 ? ratedCars.filter(other => other !== car).reduce((sum, other) => sum + 1 / (1 + Math.pow(10, (other.irating - car.irating) / 1600)), 0) / (ratedCars.length - 1) : 0.5;
@@ -200,6 +232,8 @@ class Telemetry extends EventEmitter {
         this.connecting = true;
         try {
             const { IRacingSDK } = this.loadSdkLibrary();
+            // Disabling the variable cache avoids stale optional-variable definitions
+            // when the user changes car or session without restarting Apex Inputs.
             const sdk = new IRacingSDK({
                 autoEnableTelemetry: true,
                 useTelemVariableCache: false
@@ -231,6 +265,8 @@ class Telemetry extends EventEmitter {
     // Read and normalize one live frame. All renderer-facing values are plain
     // numbers, booleans, strings, and arrays that can be cloned safely by IPC.
     readFrame() {
+        // This method is intentionally synchronous and short because it runs up to
+        // sixty times per second while iRacing is producing new shared-memory pages.
         if (!this.sdk)
             return;
         try {
@@ -238,6 +274,8 @@ class Telemetry extends EventEmitter {
                 this.log("first-frame-wait-started");
                 this.firstFramePending = "waiting";
             }
+            // Wait briefly for a fresh SDK page. A timeout is normal between updates;
+            // thirty seconds without data is treated as a disconnected simulator.
             if (!this.sdk.waitForData(8)) {
                 if (Date.now() - this.lastDataAt > 30000)
                     this.disconnect();
@@ -251,6 +289,8 @@ class Telemetry extends EventEmitter {
                 this.log("first-frame-telemetry-complete", { telemetryKeys: Object.keys(telemetry).length });
                 this.firstFramePending = false;
             }
+            // Scalars still arrive in SDK arrays. The newest/last element is selected
+            // and rejected when it cannot be represented as a finite JavaScript number.
             const readVariable = name => {
                 const decoded = this.decodeVariable(telemetry[name]);
                 const item = decoded?.[decoded.length - 1];
@@ -258,8 +298,11 @@ class Telemetry extends EventEmitter {
                 return Number.isFinite(number) ? number : null;
             };
             const readArray = name => this.decodeVariable(telemetry[name]) || [];
+            // Inputs needed by the primary overlay. Missing optional channels stay null
+            // until the final renderer-facing frame applies a safe default.
             const values = {
                 throttle: readVariable("Throttle"),
+                throttleRaw: readVariable("ThrottleRaw"),
                 brake: readVariable("Brake"),
                 clutch: readVariable("Clutch"),
                 steering: readVariable("SteeringWheelAngle"),
@@ -277,6 +320,8 @@ class Telemetry extends EventEmitter {
             const deployRaw = readVariable("EnergyMGU_KLapDeployPct");
             this.updateSessionData();
             const sessionType = this.session?.SessionInfo?.Sessions?.[readVariable("SessionNum") ?? 0]?.SessionType || "";
+            // Strength of Field uses the harmonic mean, matching the usual treatment
+            // of driver ratings where a single low value should influence the result.
             const ratings = (this.session?.DriverInfo?.Drivers || []).map(driver => Number(driver.IRating)).filter(value => value > 0);
             const sof = ratings.length ? Math.round(ratings.length / ratings.reduce((sum, value) => sum + 1 / value, 0)) : 0;
             const sessionDrivers = this.session?.DriverInfo?.Drivers || [];
@@ -293,13 +338,32 @@ class Telemetry extends EventEmitter {
             const lapPct = Number.isFinite(playerLapPct) && playerLapPct >= 0
                 ? playerLapPct
                 : telemetryLapPct;
-            const pitBoxPct = Number(playerDriver.DriverPitTrkPct);
+            // DriverPitTrkPct normally lives directly under DriverInfo, not in
+            // the player's Drivers[] entry. Accept both layouts for older SDK
+            // session parsers and normalize values written as "12.3 %".
+            // Session YAML may express percentages as 0.25, 25 or "25 %" depending
+            // on field and parser. Convert every supported representation to 0..1.
+            const percentage = value => {
+                if (value == null || value === "")
+                    return NaN;
+                const text = String(value).trim();
+                const number = Number.parseFloat(text);
+                if (!Number.isFinite(number))
+                    return NaN;
+                return text.includes("%") || number > 1 ? number / 100 : number;
+            };
+            const pitBoxPct = percentage(
+                this.session?.DriverInfo?.DriverPitTrkPct
+                ?? playerDriver.DriverPitTrkPct
+                ?? this.session?.DriverInfo?.Drivers?.[playerIdx]?.DriverPitTrkPct
+            );
             let pitDistance = null;
             if (trackLengthKm > 0
                 && Number.isFinite(lapPct)
                 && Number.isFinite(pitBoxPct)
                 && pitBoxPct >= 0
                 && pitBoxPct <= 1) {
+                // Convert track percentage to forward distance along the lap.
                 let distancePct = pitBoxPct - lapPct;
                 // A negative value in the pit lane normally means the box has
                 // just been passed. Elsewhere it means the next box is on the
@@ -308,12 +372,91 @@ class Telemetry extends EventEmitter {
                     distancePct = onPitRoad && distancePct > -0.5 ? 0 : distancePct + 1;
                 pitDistance = Math.max(0, distancePct * trackLengthKm * 1000);
             }
+            if (Date.now() - this.lastDiagnosticAt > 5000 && !Number.isFinite(pitDistance)) {
+                this.log("pit-box-distance-unavailable", {
+                    playerIdx,
+                    lapPct,
+                    pitBoxPct,
+                    driverInfoPitPct: this.session?.DriverInfo?.DriverPitTrkPct ?? null,
+                    driverPitPct: playerDriver.DriverPitTrkPct ?? null,
+                    trackLengthKm
+                });
+            }
+            // Session-wide P2P arrays are zero-filled even for some unsupported cars,
+            // so later logic requires positive car-specific evidence.
+            const p2pCounts = readArray("CarIdxP2P_Count");
+            const p2pStatuses = readArray("CarIdxP2P_Status");
+            const playerP2pCount = readVariable("P2P_Count");
+            const playerP2pStatus = readVariable("P2P_Status");
+            // CarIdxP2P_* is a session-wide 64-car array and can be present
+            // even when the player's car has no Push-to-Pass system. The
+            // player-specific P2P_* variables are car capabilities, so only
+            // those (or a car-specific control) make the overlay available.
+            const p2pCount = Number.isFinite(Number(playerP2pCount))
+                ? Number(playerP2pCount)
+                : Number.isFinite(Number(p2pCounts[playerIdx])) ? Number(p2pCounts[playerIdx]) : 0;
+            const p2pStatus = Boolean(playerP2pStatus ?? p2pStatuses[playerIdx] ?? readVariable("PushToPass") ?? 0);
+            const p2pControlAvailable = Object.hasOwn(telemetry, "dcPushToPass");
+            const carKey = `${playerDriver.CarID ?? ""}:${playerDriver.CarPath ?? playerDriver.CarScreenName ?? playerIdx}`;
+            if (this.p2pCapabilityCarKey !== carKey) {
+                this.p2pCapabilityCarKey = carKey;
+                this.p2pCapabilityConfirmed = false;
+                this.p2pStartedAt = 0;
+                this.p2pLastEndedAt = 0;
+                this.p2pWasActive = false;
+            }
+            // Zero-filled P2P variables are published for some cars without
+            // the feature. Require positive evidence and latch it for the
+            // current car, so the overlay remains available after the final use.
+            if (p2pControlAvailable || p2pCount > 0 || p2pStatus)
+                this.p2pCapabilityConfirmed = true;
+            const p2pAvailable = this.p2pCapabilityConfirmed;
+            const p2pActive = p2pAvailable && p2pStatus;
+            const now = Date.now();
+            // Edge detection converts the boolean P2P state into use and cooldown timers.
+            if (p2pActive && !this.p2pWasActive)
+                this.p2pStartedAt = now;
+            if (!p2pActive && this.p2pWasActive)
+                this.p2pLastEndedAt = now;
+            this.p2pWasActive = p2pActive;
+            const p2pUsageTime = p2pActive && this.p2pStartedAt ? (now - this.p2pStartedAt) / 1000 : 0;
+            const p2pCooldownElapsed = !p2pActive && this.p2pLastEndedAt ? (now - this.p2pLastEndedAt) / 1000 : 0;
+            // TC intervention is not consistently exposed by iRacing. Prefer any known
+            // direct signal, then fall back to comparing raw and delivered throttle.
+            const telemetryKeys = Object.keys(telemetry);
+            const directTcKey = ["TractionControlActive", "TCActive", "TCSActive", "TractionControlCutPct", "TCCutPct"]
+                .find(key => Object.hasOwn(telemetry, key));
+            const directTcValue = directTcKey ? readVariable(directTcKey) : null;
+            const tcAvailable = Object.hasOwn(telemetry, "dcTractionControl")
+                || Object.hasOwn(telemetry, "dcTractionControl2")
+                || Object.hasOwn(telemetry, "dcTractionControlToggle")
+                || Boolean(directTcKey);
+            // Prefer a dedicated intervention signal if iRacing exposes one.
+            // Otherwise use the only live approximation available: a cut
+            // between raw pedal demand and delivered throttle.
+            const tcEnabled = (readVariable("dcTractionControlToggle") ?? 1) > 0;
+            const inferredTcCut = tcEnabled && values.throttleRaw !== null && values.throttle !== null
+                && values.throttleRaw > 0.08 && values.throttleRaw - values.throttle > 0.01;
+            const tcActive = tcAvailable && (directTcValue !== null ? directTcValue > 0.001 : inferredTcCut);
+            if (Date.now() - this.lastDiagnosticAt > 5000 && tcAvailable) {
+                this.log("tc-detection", {
+                    directTcKey: directTcKey || null,
+                    directTcValue,
+                    throttle: values.throttle,
+                    throttleRaw: values.throttleRaw,
+                    tcToggle: readVariable("dcTractionControlToggle"),
+                    tcVariables: telemetryKeys.filter(key => /traction|(^|_)tc/i.test(key))
+                });
+            }
             const pitSpeedLimit = parseFloat(this.session?.WeekendInfo?.TrackPitSpeedLimit) || 0;
             const playerLapDistance = lapDistances[playerIdx] ?? lapPct;
+            // Radar uses signed metres relative to the player. Lap wrap is corrected
+            // before filtering to cars close enough to be relevant.
             const radarOffsets = lapDistances.map((value, index) => { if (index === playerIdx || value == null || value < 0)
                 return null; let delta = value - playerLapDistance; if (delta > 0.5)
                 delta -= 1; if (delta < -0.5)
                 delta += 1; return delta * trackLengthKm * 1000; }).filter(value => value !== null && Math.abs(value) < 20).sort((a, b) => Math.abs(a) - Math.abs(b)).slice(0, 2);
+            // A connected SDK without the five core channels is not yet a usable frame.
             const available = ["throttle", "brake", "clutch", "steering", "gear"].filter(key => values[key] !== null).length;
             if (available === 0) {
                 let typeCount = 0;
@@ -344,6 +487,7 @@ class Telemetry extends EventEmitter {
                 this.frameErrorCount = 0;
                 return;
             }
+            // From this point onward the object contains cloneable primitives only.
             this.emit("data", {
                 connected: true,
                 demo: false,
@@ -353,6 +497,8 @@ class Telemetry extends EventEmitter {
                 steering: values.steering ?? 0,
                 gear: values.gear ?? 0,
                 abs: (values.abs ?? 0) > 0,
+                tcAvailable,
+                tcActive,
                 fuelLevel,
                 fuelPerLap: fuelUsePerHour > 0 && lastLapTime > 0 ? fuelUsePerHour * lastLapTime / 3600 : 0,
                 lastFuelPerLap: fuelUsePerHour > 0 && lastLapTime > 0 ? fuelUsePerHour * lastLapTime / 3600 : 0,
@@ -380,6 +526,11 @@ class Telemetry extends EventEmitter {
                 pitDistance,
                 pitLimiterOn: (readVariable("dcPitSpeedLimiterToggle") ?? readVariable("PitSpeedLimiter") ?? 0) > 0,
                 pitWarning: ((readVariable("EngineWarnings") ?? 0) & 16) !== 0,
+                p2pAvailable,
+                p2pActive,
+                p2pRemaining: Math.max(0, p2pCount),
+                p2pUsageTime,
+                p2pCooldownElapsed,
                 mguAvailable: batteryRaw !== null || deployRaw !== null,
                 mguBattery: batteryRaw ?? 0,
                 mguDeploy: deployRaw ?? 0,
@@ -424,6 +575,7 @@ class Telemetry extends EventEmitter {
         this.emit("status", this.status);
     }
     demoFrame() {
+        // Trigonometric curves create smooth, repeatable motion for UI development.
         this.phase += 0.035;
         return {
             connected: false,
@@ -434,6 +586,8 @@ class Telemetry extends EventEmitter {
             steering: Math.sin(this.phase * 0.73) * 1.25,
             gear: Math.max(0, Math.min(6, Math.floor((Math.sin(this.phase * 0.24) + 1) * 3.5))),
             abs: Math.max(0, Math.sin(this.phase + 2.35) * 0.82) > 0.7,
+            tcAvailable: true,
+            tcActive: Math.max(0, Math.sin(this.phase + 1.1)) > 0.88,
             fuelLevel: 48.56 - (this.phase % 5) * 0.08,
             fuelPerLap: 4.75,
             lastFuelPerLap: 4.78,
@@ -459,6 +613,11 @@ class Telemetry extends EventEmitter {
             speedKph: 60.5,
             pitSpeedLimit: 60,
             pitDistance: 25,
+            p2pAvailable: true,
+            p2pActive: this.demoTick % 300 > 80 && this.demoTick % 300 < 200,
+            p2pRemaining: 7,
+            p2pUsageTime: ((this.demoTick % 300) / 30),
+            p2pCooldownElapsed: ((this.demoTick % 180) / 30),
             pitLimiterOn: Math.sin(this.phase * 0.18) > -0.25,
             pitWarning: true,
             mguAvailable: true,

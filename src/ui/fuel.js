@@ -1,5 +1,8 @@
 /**
- * Calculates and renders fuel usage, remaining laps, refuelling requirements, and projected fuel at the finish.
+ * Fuel Calculator renderer.
+ *
+ * Average, qualifying, last-lap and custom strategies share the same calculation,
+ * allowing the driver to compare assumptions without duplicating business logic.
  */
 let settings, telemetry;
 const $ = id => document.getElementById(id);
@@ -8,8 +11,10 @@ function temperature(value = 0, f) { const precise = f.preciseTemps ? 1 : 0, c =
     return `${(c * 9 / 5 + 32).toFixed(precise)}°F`; if (f.tempUnits === "both")
     return `${c.toFixed(precise)}°C/${(c * 9 / 5 + 32).toFixed(precise)}°F`; return `${c.toFixed(precise)}°C`; }
 function calculate(usage, laps, fuel, reserve) { const needed = usage * (laps + reserve), refuel = Math.max(0, needed - fuel); return { usage, laps, refuel, end: fuel + refuel - usage * laps }; }
+// Produce one complete visual row using the colour assigned to its strategy.
 function row(label, values, color) { return `<div class="calc-label" style="color:${color}"><small>${label}</small><strong>${number(values.usage)}</strong></div><strong style="color:${color}">${number(values.laps)}</strong><strong style="color:${color}">${number(values.refuel)}</strong><strong style="color:${color}">${number(values.end)}</strong>`; }
 function render() {
+    // Settings can arrive before telemetry, so the two inputs are guarded separately.
     if (!settings)
         return;
     const f = settings.fuel, root = document.documentElement.style;
@@ -23,15 +28,18 @@ function render() {
     $("fuel").classList.toggle("editing", settings.fuelEditMode);
     if (!telemetry)
         return;
+    // Visibility changes preserve the renderer and its accumulated state.
     const hidden = (f.hideReplay && telemetry.isReplay) || (f.hideGarage && telemetry.inGarage);
     $("fuel").style.visibility = hidden ? "hidden" : "visible";
     if (hidden)
         return;
+    // All calculation inputs are clamped or defaulted before strategy formulas run.
     const fuel = telemetry.fuelLevel || 0, average = telemetry.fuelPerLap || 0, laps = Math.max(0, telemetry.lapsRemaining || 0), reserve = f.reserveLaps || 0;
     $("fuelLevel").textContent = number(fuel);
     $("raceLap").textContent = Math.max(0, Math.round(telemetry.lap || 0));
     $("pit").classList.toggle("active", Boolean(telemetry.onPitRoad));
     $("clock").textContent = f.multiclassClock && telemetry.isSlowerClass ? `Leader Lap ${telemetry.leaderLap || "--"}` : f.localTime ? new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit", hour12: f.clockFormat === "12h" }) : "";
+    // Optional information is assembled as tokens, then joined into one compact line.
     const top = [];
     if (f.oilTemp)
         top.push(`♨ ${temperature(telemetry.oilTemp, f)}`);

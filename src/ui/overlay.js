@@ -1,7 +1,11 @@
 /**
- * Renders pedal inputs, gear, speed, steering direction, and the optional input history graph.
+ * Inputs overlay renderer.
+ *
+ * Settings control structure and appearance, while telemetry updates live values.
+ * The graph stores 120 normalized samples, approximately two seconds at 60 Hz.
  */
 const pedals = { clutch: ["CLU"], brake: ["BRK"], throttle: ["THR"] };
+// Independent FIFO sample buffers are used by the Canvas history graph.
 const history = { clutch: [], brake: [], throttle: [] };
 let settings;
 const $ = id => document.getElementById(id);
@@ -10,6 +14,7 @@ speedLabel.className = "speed";
 speedLabel.textContent = "0 km/h";
 $("gear").appendChild(speedLabel);
 function render(s) {
+    // CSS variables propagate user-selected sizes and colours efficiently.
     settings = s;
     const root = document.documentElement.style;
     root.setProperty("--accent", s.accent);
@@ -21,6 +26,7 @@ function render(s) {
     root.setProperty("--graph-height", `${s.graphHeight}px`);
     root.setProperty("--font-scale", s.inputsFontSize / 100);
     $("overlay").classList.toggle("editing", s.editMode);
+    // Rebuild modules only when settings change, rather than on every telemetry frame.
     $("pedals").innerHTML = Object.entries(pedals).filter(([key]) => s.modules[key]).map(([key, value]) => `<div class="pedal ${s.pedalValuePosition === "top" ? "value-top" : ""}" data-key="${key}" style="--color:${s.pedalColors[key]}"><div class="bar"><i class="fill"></i></div><strong class="${!s.showPedalValues || !s.pedalValueVisibility[key] ? "value-hidden" : ""}">0%</strong><span>${value[0]}</span></div>`).join("");
     $("gear").style.display = s.modules.gear ? "flex" : "none";
     $("steering").style.display = s.modules.steering ? "flex" : "none";
@@ -31,6 +37,7 @@ function drawGraph() {
         return;
     const canvas = $("graph").querySelector("canvas");
     const box = canvas.getBoundingClientRect();
+    // A high-resolution backing bitmap keeps lines sharp on high-DPI monitors.
     const dpr = devicePixelRatio || 1;
     canvas.width = Math.max(1, box.width * dpr);
     canvas.height = Math.max(1, box.height * dpr);
@@ -44,6 +51,7 @@ function drawGraph() {
         ctx.lineTo(box.width, y * box.height / 4);
         ctx.stroke();
     }
+    // Convert each normalized sample into x/y Canvas coordinates.
     for (const key of ["clutch", "brake", "throttle"]) {
         ctx.strokeStyle = settings.pedalColors[key];
         ctx.lineWidth = 2;
@@ -59,6 +67,7 @@ function drawGraph() {
 window.apex.getSettings().then(render);
 window.apex.onSettings(render);
 window.apex.onTelemetry(data => {
+    // Add current samples, then remove the oldest values beyond the fixed history.
     for (const key of Object.keys(history)) {
         history[key].push(Math.max(0, Math.min(1, data[key] || 0)));
         if (history[key].length > 120)
@@ -68,11 +77,18 @@ window.apex.onTelemetry(data => {
         const value = Math.max(0, Math.min(1, data[element.dataset.key] || 0));
         element.querySelector(".fill").style.height = `${value * 100}%`;
         element.querySelector("strong").textContent = `${Math.round(value * 100)}%`;
+        // ABS uses an official activation signal. TC uses the best available
+        // capability-aware estimate prepared by telemetry.js.
         if (element.dataset.key === "brake")
             element.classList.toggle("abs-active", Boolean(data.abs));
+        if (element.dataset.key === "throttle") {
+            element.classList.toggle("tc-available", Boolean(data.tcAvailable));
+            element.classList.toggle("tc-active", Boolean(data.tcAvailable && data.tcActive));
+        }
     });
     $("gear").querySelector("strong").textContent = data.gear === -1 ? "R" : data.gear === 0 ? "N" : data.gear;
     speedLabel.textContent = `${Math.round(Math.max(0, data.speedKph || 0))} km/h`;
+    // The SDK provides radians; 57.2958 converts them to degrees for CSS rotation.
     const degrees = -Math.round((data.steering || 0) * 57.2958);
     $("steering").querySelector("strong").textContent = `${degrees >= 0 ? "+" : ""}${degrees}°`;
     $("steering").querySelector(".wheel i").style.transform = `rotate(${degrees}deg)`;

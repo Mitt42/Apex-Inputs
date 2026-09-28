@@ -11,6 +11,7 @@ windows over the simulator.
 - **Fuel Calculator** — usage, remaining laps, refuelling and finish projection.
 - **Pit Helper** — pit distance, speed limit, limiter and race-start controls.
 - **MGU** — battery charge, deployment and charging/draining indication.
+- **Push to Pass** — remaining uses, active-use timer and cooldown state; hidden automatically on unsupported cars.
 - **Radar** — contextual side-by-side warnings for one or two cars per side.
 - **Standings** — overall or multiclass positions, intervals, pit state and history.
 
@@ -34,7 +35,7 @@ npm install
 npm start
 ```
 
-Alternatively, double-click `iniciar-apex-inputs.cmd` on Windows. The launcher
+Alternatively, double-click `start-apex-inputs.cmd` on Windows. The launcher
 checks for Node.js, installs missing dependencies automatically on the first
 run, and then starts Apex Inputs. It does not require Codex or pnpm.
 
@@ -82,6 +83,7 @@ src/
     fuel.*                 Fuel Calculator
     pit.*                  Pit Helper
     mgu.*                  MGU overlay
+    p2p.*                  Push-to-Pass overlay
     radar.*                Radar overlay
     standings.*            Standings overlay
 ```

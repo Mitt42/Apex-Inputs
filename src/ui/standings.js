@@ -1,12 +1,15 @@
 /**
- * Renders overall or multiclass standings, gaps, intervals, ratings, pit state,
- * and recent time gain history.
+ * Standings overlay renderer.
+ *
+ * Cars are grouped by class and race order. Local maps retain previous gaps so
+ * recent time gains can be displayed without burdening the telemetry process.
  */
 
 let settings;
 let data;
 
 const $ = id => document.getElementById(id);
+// Car index is a stable key even when visible positions change during the race.
 const histories = new Map();
 const previousGaps = new Map();
 
@@ -99,6 +102,7 @@ function render() {
 
 /** Build one standings row and update its rolling gain/loss history. */
 function renderRow(car, index, cars, options) {
+  // A row combines identity, rating, pit state, gap, interval and gain history.
   const previous = previousGaps.get(car.carIdx);
   if (previous !== undefined) {
     const history = histories.get(car.carIdx) || [];

@@ -1,10 +1,13 @@
 /**
- * Renders hybrid battery charge and deployment while indicating whether energy
- * is charging or draining.
+ * MGU overlay renderer.
+ *
+ * Hybrid values can arrive as 0..1 fractions or 0..100 percentages. The helper
+ * below accepts both and gives the visual bars one consistent representation.
  */
 
 let settings;
 let telemetry;
+// Compare consecutive frames to colour the border as charging or draining.
 let lastBattery = null;
 
 const $ = id => document.getElementById(id);
@@ -42,6 +45,7 @@ function render() {
     ? 'visible'
     : 'hidden';
 
+  // Normalize values before updating widths and formatted text.
   const battery = percentage(telemetry.mguBattery);
   const deploy = percentage(telemetry.mguDeploy);
   const digits = options.precision ? 1 : 0;

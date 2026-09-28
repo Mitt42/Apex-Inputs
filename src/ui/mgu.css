@@ -1,5 +1,7 @@
 /*
- * Defines the mgu component of Apex Inputs.
+ * MGU overlay presentation.
+ * Two compact progress bars display battery state and deployment while border colour
+ * communicates charging or draining without adding another text column.
  */
 
 :root {
